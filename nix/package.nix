@@ -1,0 +1,205 @@
+{
+  lib,
+  stdenv,
+  runCommand,
+  fetchurl,
+  fetchNpmDeps,
+  npmHooks,
+  nodejs,
+  cmake,
+  pkg-config,
+  python3,
+  wayland-scanner,
+  shaderc,
+  autoPatchelfHook,
+  qt6,
+  boost,
+  curl,
+  miniupnpc,
+  nlohmann_json,
+  openssl,
+  libopus,
+  avahi,
+  libevdev,
+  libpulseaudio,
+  libx11,
+  libxcb,
+  libxfixes,
+  libxrandr,
+  libxtst,
+  libxi,
+  libdrm,
+  libgbm,
+  libglvnd,
+  libcap,
+  libva,
+  numactl,
+  pipewire,
+  glib,
+  wayland,
+  vulkan-headers,
+  vulkan-loader,
+
+  # Provided by the flake.
+  src,
+  version,
+  rev,
+}:
+let
+  submodules = lib.importJSON ./submodules.json;
+
+  # Upstream downloads these prebuilt, patched FFmpeg static libraries at configure time.
+  # Pin the exact build-deps release the superproject references so the build stays offline.
+  ffmpegBundle = fetchurl {
+    url = "https://github.com/LizardByte/build-deps/releases/download/v2026.910.121303/Linux-x86_64-ffmpeg.tar.gz";
+    hash = "sha256-SW0ru2dNAeYDPjG538FcvJ3BSU6IKkUF9qseA/dbOFw=";
+  };
+  ffmpeg = runCommand "sunshine-ffmpeg-prebuilt" { } ''
+    mkdir -p $out
+    tar -xzf ${ffmpegBundle} -C $out
+  '';
+
+  # The flake source carries no submodules; graft in only what a Linux build needs.
+  fullSrc = runCommand "stream-host-src-${version}" { } (
+    ''
+      cp -r ${src} $out
+      chmod -R u+w $out
+    ''
+    + lib.concatMapStrings (module: ''
+      rm -rf $out/${module.path}
+      cp -r ${
+        builtins.fetchGit {
+          inherit (module) url rev submodules;
+          shallow = true;
+        }
+      } $out/${module.path}
+      chmod -R u+w $out/${module.path}
+    '') submodules
+  );
+
+  pythonWithJinja = python3.withPackages (ps: [ ps.jinja2 ]);
+in
+stdenv.mkDerivation (finalAttrs: {
+  pname = "stream-host";
+  inherit version;
+
+  src = fullSrc;
+
+  npmDeps = fetchNpmDeps {
+    src = lib.fileset.toSource {
+      root = ../.;
+      fileset = lib.fileset.unions [
+        ../package.json
+        ../package-lock.json
+      ];
+    };
+    hash = "sha256-Jwbs9/hxz8n7WfbmobZLhHG2Rpjp1jFydyReF/zJBb4=";
+  };
+
+  nativeBuildInputs = [
+    cmake
+    pkg-config
+    pythonWithJinja
+    wayland-scanner
+    shaderc
+    nodejs
+    npmHooks.npmConfigHook
+    qt6.wrapQtAppsHook
+    autoPatchelfHook
+  ];
+
+  buildInputs = [
+    boost
+    curl
+    miniupnpc
+    nlohmann_json
+    openssl
+    libopus
+    avahi
+    libevdev
+    libpulseaudio
+    libx11
+    libxcb
+    libxfixes
+    libxrandr
+    libxtst
+    libxi
+    libdrm
+    libgbm
+    libcap
+    libva
+    numactl
+    pipewire
+    glib
+    wayland
+    vulkan-headers
+    vulkan-loader
+    qt6.qtbase
+    qt6.qtsvg
+    qt6.qtwayland
+  ];
+
+  # Loaded with dlopen at runtime (EGL/GL through glad, avahi, gbm, X11 helpers).
+  runtimeDependencies = [
+    avahi
+    libgbm
+    libglvnd
+    libxrandr
+    libxcb
+    vulkan-loader
+  ];
+
+  cmakeFlags = [
+    "-Wno-dev"
+    (lib.cmakeBool "BUILD_DOCS" false)
+    (lib.cmakeBool "BUILD_TESTS" false)
+    (lib.cmakeBool "BUILD_WERROR" false)
+    (lib.cmakeBool "BOOST_USE_STATIC" false)
+    (lib.cmakeBool "NPM_SKIP_INSTALL" true)
+    (lib.cmakeBool "GLAD_SKIP_PIP_INSTALL" true)
+    (lib.cmakeBool "SUNSHINE_SYSTEM_VULKAN_HEADERS" true)
+    (lib.cmakeBool "SUNSHINE_ENABLE_CUDA" false)
+    (lib.cmakeBool "CUDA_FAIL_ON_MISSING" false)
+    (lib.cmakeFeature "FFMPEG_PREPARED_BINARIES" "${ffmpeg}/ffmpeg")
+    (lib.cmakeFeature "SUNSHINE_ASSETS_DIR" "share/sunshine")
+    (lib.cmakeFeature "SUNSHINE_EXECUTABLE_PATH" "${placeholder "out"}/bin/sunshine")
+    (lib.cmakeFeature "SUNSHINE_PUBLISHER_NAME" "stream-host")
+    (lib.cmakeFeature "SUNSHINE_PUBLISHER_WEBSITE" "https://github.com/HalcyonOmega")
+    (lib.cmakeFeature "SUNSHINE_PUBLISHER_ISSUE_URL" "https://github.com/HalcyonOmega")
+    # Keep udev/systemd payloads inside $out instead of the systemd store path pkg-config reports.
+    (lib.cmakeFeature "UDEV_RULES_INSTALL_DIR" "lib/udev/rules.d")
+    (lib.cmakeFeature "SYSTEMD_USER_UNIT_INSTALL_DIR" "lib/systemd/user")
+    (lib.cmakeFeature "SYSTEMD_SYSTEM_UNIT_INSTALL_DIR" "lib/systemd/system")
+    (lib.cmakeFeature "SYSTEMD_MODULES_LOAD_DIR" "lib/modules-load.d")
+  ];
+
+  env = {
+    # Version comes from the flake, not from git describe inside the sandbox.
+    BUILD_VERSION = version;
+    BRANCH = "main";
+    COMMIT = rev;
+  };
+
+  postFixup = ''
+    # wrapQtAppsHook turns bin/sunshine into a launcher script. KWin grants the
+    # screencast protocol by matching the client's real executable against this file.
+    substituteInPlace $out/share/applications/dev.lizardbyte.app.Sunshine.kwin.desktop \
+      --replace-fail "Exec=$out/bin/sunshine" "Exec=$out/bin/.sunshine-wrapped"
+
+    # The NixOS module runs the user unit as `sunshine.service`.
+    substituteInPlace $out/share/applications/dev.lizardbyte.app.Sunshine.desktop \
+      --replace-fail "Exec=/usr/bin/env systemctl start --u app-dev.lizardbyte.app.Sunshine" "Exec=systemctl --user start sunshine"
+  '';
+
+  passthru = {
+    inherit ffmpeg;
+  };
+
+  meta = {
+    description = "Sunshine fork tuned for NixOS and KDE Plasma, with per-client virtual displays";
+    homepage = "https://github.com/LizardByte/Sunshine";
+    license = lib.licenses.gpl3Only;
+    mainProgram = "sunshine";
+    platforms = [ "x86_64-linux" ];
+  };
+})

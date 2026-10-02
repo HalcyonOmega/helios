@@ -13,7 +13,8 @@ IF (NOT WIN32)
         pkg_check_modules(SYSTEMD "systemd")
     endif()
 
-    if (SYSTEMD_FOUND)
+    # Packagers (e.g. Nix) may preset the install directories; only query pkg-config when they did not.
+    if (SYSTEMD_FOUND AND NOT DEFINED SYSTEMD_USER_UNIT_INSTALL_DIR)
         execute_process(COMMAND ${PKG_CONFIG_EXECUTABLE}
             --variable=systemd_user_unit_dir systemd
             OUTPUT_STRIP_TRAILING_WHITESPACE

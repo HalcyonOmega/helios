@@ -10,6 +10,7 @@ set(SUNSHINE_PUBLISHER_ISSUE_URL "https://app.lizardbyte.dev/support"
 option(BUILD_DOCS "Build documentation" ON)
 option(BUILD_TESTS "Build tests" ON)
 option(NPM_OFFLINE "Use offline npm packages. You must ensure packages are in your npm cache." OFF)
+option(NPM_SKIP_INSTALL "Skip 'npm ci' and build the web UI with an already-installed node_modules (e.g. Nix)." OFF)
 
 option(BUILD_WERROR "Enable -Werror flag." OFF)
 

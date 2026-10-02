@@ -20,12 +20,15 @@ if(NOT WIN32)
             set(UDEV_VERSION "0")
         endif()
 
-        execute_process(COMMAND ${PKG_CONFIG_EXECUTABLE}
-            --variable=udev_dir udev
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            OUTPUT_VARIABLE UDEV_RULES_INSTALL_DIR)
+        # Packagers (e.g. Nix) may preset the install directory; only query pkg-config when they did not.
+        if(NOT DEFINED UDEV_RULES_INSTALL_DIR)
+            execute_process(COMMAND ${PKG_CONFIG_EXECUTABLE}
+                --variable=udev_dir udev
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                OUTPUT_VARIABLE UDEV_RULES_INSTALL_DIR)
 
-        set(UDEV_RULES_INSTALL_DIR "${UDEV_RULES_INSTALL_DIR}/rules.d")
+            set(UDEV_RULES_INSTALL_DIR "${UDEV_RULES_INSTALL_DIR}/rules.d")
+        endif()
 
         mark_as_advanced(UDEV_RULES_INSTALL_DIR)
 

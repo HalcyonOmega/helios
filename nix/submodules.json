@@ -1,0 +1,13 @@
+[
+  { "path": "third-party/Simple-Web-Server", "url": "https://github.com/LizardByte-infrastructure/Simple-Web-Server.git", "rev": "546895a93a29062bb178367b46c7afb72da9881e", "submodules": true },
+  { "path": "third-party/build-deps", "url": "https://github.com/LizardByte/build-deps.git", "rev": "a1fe2841cbc0d8c4501a1006d2d1cb88f219cc8c", "submodules": false },
+  { "path": "third-party/glad", "url": "https://github.com/Dav1dde/glad.git", "rev": "73db193f853e2ee079bf3ca8a64aa2eaf6459043", "submodules": true },
+  { "path": "third-party/libdisplaydevice", "url": "https://github.com/LizardByte/libdisplaydevice.git", "rev": "6e9722f89103320c948dc1199066c9e17a69e88a", "submodules": true },
+  { "path": "third-party/libvirtualhid", "url": "https://github.com/LizardByte/libvirtualhid.git", "rev": "b54a7c2fc17c8c9e091f7be059f1588c59998160", "submodules": true },
+  { "path": "third-party/lizardbyte-common", "url": "https://github.com/LizardByte/lizardbyte-common.git", "rev": "f9d91e1d29b7473f58e43acde4579da4e56c4abe", "submodules": true },
+  { "path": "third-party/moonlight-common-c", "url": "https://github.com/moonlight-stream/moonlight-common-c.git", "rev": "f900dd4767759c7b9d0e93bcea666b55c69ea62f", "submodules": true },
+  { "path": "third-party/plasma-wayland-protocols", "url": "https://github.com/KDE/plasma-wayland-protocols.git", "rev": "c5ac4db818f4a575a6ccfe0065b73ecfaba6e93e", "submodules": true },
+  { "path": "third-party/tray", "url": "https://github.com/LizardByte/tray.git", "rev": "c1f2a8ab56dd399b881fb7aeab4fe4fc9c58188d", "submodules": true },
+  { "path": "third-party/wayland-protocols", "url": "https://github.com/LizardByte-infrastructure/wayland-protocols.git", "rev": "ee78491a237eaff9389a0ccf8680521d074407d3", "submodules": true },
+  { "path": "third-party/wlr-protocols", "url": "https://github.com/LizardByte-infrastructure/wlr-protocols.git", "rev": "bf4fc79abc359eea5a0edec0ac6d4a2b2955f82a", "submodules": true }
+]
