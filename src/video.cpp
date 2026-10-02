@@ -1834,6 +1834,18 @@ namespace video {
     auto &sps = session.sps;
     auto &vps = session.vps;
 
+    // Debug-level pacing diagnostics: the interval between encoded frames shows stutter
+    // (its max) and the effective frame rate (its average); encode time shows encoder load.
+    static logging::time_delta_periodic_logger frame_interval_logger(debug, "Video: interval between encoded frames", 5s);
+    static logging::time_delta_periodic_logger encode_time_logger(debug, "Video: encode time per frame", 5s);
+    const auto encode_start = std::chrono::steady_clock::now();
+    frame_interval_logger.second_point_and_log(encode_start);
+    frame_interval_logger.first_point(encode_start);
+    encode_time_logger.first_point(encode_start);
+    auto log_encode_time = util::fail_guard([&]() {
+      encode_time_logger.second_point_now_and_log();
+    });
+
     // send the frame to the encoder
     auto ret = avcodec_send_frame(ctx.get(), frame);
     if (ret < 0) {

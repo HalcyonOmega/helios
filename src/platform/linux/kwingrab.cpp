@@ -1019,9 +1019,9 @@ function isStreamedGame(window) {
   if (!window || !window.normalWindow) {
     return false;
   }
-  const resourceClass = String(window.resourceClass || "").toLowerCase();
-  return resourceClass.startsWith("steam_app_") ||
-    resourceClass === "gamescope" ||
+  // X11 windows carry both an instance (resourceName) and a class (resourceClass); match either.
+  const names = [window.resourceClass, window.resourceName].map((name) => String(name || "").toLowerCase());
+  return names.some((name) => name.startsWith("steam_app_") || name === "gamescope") ||
     String(window.caption || "") === "Steam Big Picture Mode";
 }
 
