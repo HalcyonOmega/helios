@@ -191,16 +191,16 @@ stdenv.mkDerivation (finalAttrs: {
     cat > $out/bin/helios <<EOF
     #!${bash}/bin/bash
     set -euo pipefail
-    PATH=${lib.makeBinPath [ coreutils diffutils ]}
+    # Absolute tool paths: the host inherits PATH (apps such as \`steam\` are found through it).
     state="\''${XDG_STATE_HOME:-\$HOME/.local/state}/helios"
     target="\$state/sunshine"
     source="$out/bin/.sunshine-wrapped"
-    mkdir -p "\$state"
-    if ! cmp -s "\$source" "\$target"; then
-      tmp=\$(mktemp "\$state/.sunshine.XXXXXX")
-      cp "\$source" "\$tmp"
-      chmod 0755 "\$tmp"
-      mv -f "\$tmp" "\$target"
+    ${coreutils}/bin/mkdir -p "\$state"
+    if ! ${diffutils}/bin/cmp -s "\$source" "\$target"; then
+      tmp=\$(${coreutils}/bin/mktemp "\$state/.sunshine.XXXXXX")
+      ${coreutils}/bin/cp "\$source" "\$tmp"
+      ${coreutils}/bin/chmod 0755 "\$tmp"
+      ${coreutils}/bin/mv -f "\$tmp" "\$target"
     fi
     exec -a sunshine "\$target" "\$@"
     EOF
