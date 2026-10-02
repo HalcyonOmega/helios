@@ -1,13 +1,16 @@
 const getStoredTheme = () => localStorage.getItem('theme')
 const setStoredTheme = theme => localStorage.setItem('theme', theme)
 
+// Without a saved choice the UI is dark; "auto" (follow the OS) stays available in the theme menu.
+const DEFAULT_THEME = 'dark'
+
 export const getPreferredTheme = () => {
     const storedTheme = getStoredTheme()
     if (storedTheme) {
         return storedTheme
     }
 
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    return DEFAULT_THEME
 }
 
 // Define which themes are dark (for Bootstrap compatibility)
@@ -117,8 +120,8 @@ export function loadAutoTheme() {
 
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
             const storedTheme = getStoredTheme()
-            // Only auto-switch if theme is set to 'auto'
-            if (storedTheme === 'auto' || !storedTheme) {
+            // Only auto-switch if theme is explicitly set to 'auto'
+            if (storedTheme === 'auto') {
                 setTheme(getPreferredTheme())
             }
         })
