@@ -5,7 +5,11 @@
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
 
 // standard includes
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -29,6 +33,7 @@
 #include "logging.h"
 #include "platform/common.h"
 #include "process.h"
+#include "steam_library.h"
 #include "system_tray.h"
 #include "utility.h"
 
@@ -563,6 +568,39 @@ namespace proc {
   }
 
   /**
+   * @brief Validates a path whether it is a JPEG (Steam caches its cover art as JPEG).
+   * @param path The path to the JPEG file.
+   * @return true if the file starts with a JPEG SOI marker, false otherwise.
+   */
+  bool check_valid_jpeg(const std::filesystem::path &path) {
+    static constexpr std::array<unsigned char, 3> JPEG_SIGNATURE = {0xFF, 0xD8, 0xFF};
+
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+      return false;
+    }
+
+    std::array<unsigned char, 3> header;
+    file.read(reinterpret_cast<char *>(header.data()), header.size());
+    return file.gcount() == static_cast<std::streamsize>(header.size()) && header == JPEG_SIGNATURE;
+  }
+
+  namespace {
+    bool is_jpeg_extension(std::string extension) {
+      boost::to_lower(extension);
+      return extension == ".jpg" || extension == ".jpeg";
+    }
+
+    bool check_valid_image(const std::filesystem::path &path) {
+      return is_jpeg_extension(path.extension().string()) ? check_valid_jpeg(path) : check_valid_png(path);
+    }
+  }  // namespace
+
+  std::string app_image_content_type(const std::string &image_path) {
+    return is_jpeg_extension(std::filesystem::path(image_path).extension().string()) ? "image/jpeg" : "image/png";
+  }
+
+  /**
    * @brief Validate app image path.
    */
   std::string validate_app_image_path(std::string app_image_path) {
@@ -574,16 +612,16 @@ namespace proc {
     auto image_extension = std::filesystem::path(app_image_path).extension().string();
     boost::to_lower(image_extension);
 
-    // return the default box image if the extension is not "png"
-    if (image_extension != ".png") {
+    // return the default box image unless the image is a PNG or a JPEG
+    if (image_extension != ".png" && !is_jpeg_extension(image_extension)) {
       return DEFAULT_APP_IMAGE_PATH;
     }
 
     // check if image is in assets directory
     if (auto full_image_path = std::filesystem::path(SUNSHINE_ASSETS_DIR) / app_image_path; std::filesystem::exists(full_image_path)) {
-      // Validate PNG signature
-      if (!check_valid_png(full_image_path)) {
-        BOOST_LOG(warning) << "Invalid PNG file at path ["sv << full_image_path << ']';
+      // Validate image signature
+      if (!check_valid_image(full_image_path)) {
+        BOOST_LOG(warning) << "Invalid image file at path ["sv << full_image_path << ']';
         return DEFAULT_APP_IMAGE_PATH;
       }
       return full_image_path.string();
@@ -601,13 +639,13 @@ namespace proc {
       return DEFAULT_APP_IMAGE_PATH;
     }
 
-    // Validate PNG signature
-    if (!check_valid_png(app_image_path)) {
-      BOOST_LOG(warning) << "Invalid PNG file at path ["sv << app_image_path << ']';
+    // Validate image signature
+    if (!check_valid_image(app_image_path)) {
+      BOOST_LOG(warning) << "Invalid image file at path ["sv << app_image_path << ']';
       return DEFAULT_APP_IMAGE_PATH;
     }
 
-    // image is a png, and not in assets directory
+    // image is a PNG or JPEG, and not in assets directory
     // return only "content-type" http header compatible image type
     return app_image_path;
   }
@@ -819,6 +857,65 @@ namespace proc {
         apps.emplace_back(std::move(ctx));
       }
 
+      if (config::sunshine.steam_library) {
+        // Hand-written entries win: skip games already listed by name or by Steam app id.
+        std::set<std::string> listed_names;
+        std::vector<std::string> listed_commands;
+        for (const auto &app : apps) {
+          listed_names.insert(boost::to_lower_copy(app.name));
+          listed_commands.push_back(app.cmd);
+          listed_commands.insert(listed_commands.end(), app.detached.begin(), app.detached.end());
+        }
+        const auto already_listed = [&](const steam_library::game_t &game) {
+          if (listed_names.contains(boost::to_lower_copy(game.name))) {
+            return true;
+          }
+          const auto needle = "rungameid/" + game.appid;
+          return std::ranges::any_of(listed_commands, [&needle](const std::string &command) {
+            for (auto pos = command.find(needle); pos != std::string::npos; pos = command.find(needle, pos + 1)) {
+              const auto end = pos + needle.size();
+              if (end == command.size() || !std::isdigit(static_cast<unsigned char>(command[end]))) {
+                return true;
+              }
+            }
+            return false;
+          });
+        };
+
+        int imported = 0;
+        for (const auto &game : steam_library::installed_games()) {
+          if (already_listed(game)) {
+            continue;
+          }
+
+          proc::ctx_t ctx;
+          for (const auto &prep_cmd : config::sunshine.prep_cmds) {
+            ctx.prep_cmds.emplace_back(
+              parse_env_val(this_env, prep_cmd.do_cmd),
+              parse_env_val(this_env, prep_cmd.undo_cmd),
+              bool {prep_cmd.elevated}
+            );
+          }
+          ctx.detached = {steam_library::launch_command(game.appid)};
+          ctx.name = game.name;
+          ctx.image_path = game.image_path;
+          ctx.elevated = false;
+          ctx.auto_detach = true;
+          ctx.wait_all = true;
+          ctx.exit_timeout = 5s;
+
+          auto possible_ids = calculate_app_id(ctx.name, ctx.image_path, i++);
+          ctx.id = ids.contains(std::get<0>(possible_ids)) ? std::get<1>(possible_ids) : std::get<0>(possible_ids);
+          ids.insert(ctx.id);
+
+          apps.emplace_back(std::move(ctx));
+          ++imported;
+        }
+        if (imported > 0) {
+          BOOST_LOG(info) << "Listed "sv << imported << " installed Steam game(s) as apps"sv;
+        }
+      }
+
       return proc::proc_t {
         std::move(this_env),
         std::move(apps)
@@ -848,12 +945,15 @@ namespace proc {
    */
   void refresh(const std::string &file_name) {
     static std::optional<std::filesystem::file_time_type> last_apps_file_update;  ///< Timestamp of the last successful apps.json parse, or nullopt if never parsed.
+    static std::string last_steam_fingerprint;  ///< Steam library state at the last successful parse.
 
     std::error_code ec;
     auto current_time = std::filesystem::last_write_time(file_name, ec);
+    auto steam_fingerprint = config::sunshine.steam_library ? steam_library::fingerprint() : std::string {};
 
-    // Only skip parsing when we have a known-good timestamp and the file hasn't changed
-    if (last_apps_file_update && !ec && current_time == *last_apps_file_update) {
+    // Only skip parsing when we have a known-good timestamp and neither the file nor the
+    // Steam library (installed games are listed as apps) has changed
+    if (last_apps_file_update && !ec && current_time == *last_apps_file_update && steam_fingerprint == last_steam_fingerprint) {
       return;
     }
 
@@ -862,6 +962,7 @@ namespace proc {
     if (proc_opt) {
       proc.update_apps_and_env(std::move(*proc_opt));
       last_apps_file_update = current_time;
+      last_steam_fingerprint = std::move(steam_fingerprint);
     }
   }
 }  // namespace proc

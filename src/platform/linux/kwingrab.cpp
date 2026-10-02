@@ -12,15 +12,19 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <pwd.h>
 #include <ranges>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
 
 // lib includes
+#include <gio/gio.h>
 #include <lizardbyte/common/env.h>
 #include <pipewire/pipewire.h>
 #include <poll.h>
@@ -35,6 +39,7 @@
 #include "cuda.h"
 #include "graphics.h"
 #include "pipewire.cpp"
+#include "src/config.h"
 #include "src/platform/common.h"
 #include "src/video.h"
 
@@ -469,6 +474,129 @@ namespace kwin {
       return 0;
     }
 
+    /**
+     * @brief Ask KWin to create a new virtual output and stream it.
+     *
+     * KWin keeps the output alive for as long as this stream (and connection) stays open and
+     * removes it when the stream is closed. On success, `out_params` describes the new output
+     * as seen by every Wayland client (name, position, mode).
+     *
+     * @param name Requested output name.
+     * @param description User-visible description shown in display settings.
+     * @param width Physical width in pixels.
+     * @param height Physical height in pixels.
+     * @param scale Compositor scale factor applied to the output.
+     * @return 0 on success, -1 on failure.
+     */
+    int start_virtual(const std::string &name, const std::string &description, int width, int height, double scale) {
+      if (!kde_screencast_v1_) {
+        BOOST_LOG(error) << "[kwingrab] zkde_screencast_unstable_v1 unavailable; cannot create a virtual display"sv;
+        return -1;
+      }
+
+      const auto version = zkde_screencast_unstable_v1_get_version(kde_screencast_v1_);
+      if (version < ZKDE_SCREENCAST_UNSTABLE_V1_STREAM_VIRTUAL_OUTPUT_SINCE_VERSION) {
+        BOOST_LOG(error) << "[kwingrab] KWin screencast protocol v"sv << version << " has no virtual output support"sv;
+        return -1;
+      }
+
+      // The protocol takes the logical size; KWin multiplies it by the scale for the real mode.
+      const int logical_width = std::max(1, static_cast<int>(std::lround(width / scale)));
+      const int logical_height = std::max(1, static_cast<int>(std::lround(height / scale)));
+      const auto fixed_scale = wl_fixed_from_double(scale);
+
+      std::set<struct wl_output *> known_outputs;
+      for (const auto &output : outputs | std::views::keys) {
+        known_outputs.insert(output);
+      }
+
+      if (version >= ZKDE_SCREENCAST_UNSTABLE_V1_STREAM_VIRTUAL_OUTPUT_WITH_DESCRIPTION_SINCE_VERSION) {
+        kde_screencast_stream_v1_ = zkde_screencast_unstable_v1_stream_virtual_output_with_description(
+          kde_screencast_v1_, name.c_str(), description.c_str(), logical_width, logical_height, fixed_scale, ZKDE_SCREENCAST_UNSTABLE_V1_POINTER_HIDDEN
+        );
+      } else {
+        kde_screencast_stream_v1_ = zkde_screencast_unstable_v1_stream_virtual_output(
+          kde_screencast_v1_, name.c_str(), logical_width, logical_height, fixed_scale, ZKDE_SCREENCAST_UNSTABLE_V1_POINTER_HIDDEN
+        );
+      }
+      zkde_screencast_stream_unstable_v1_add_listener(kde_screencast_stream_v1_, &stream_listener, this);
+
+      if (wait_for_stream() < 0) {
+        return -1;
+      }
+      if (stream_failed || !stream_ready) {
+        BOOST_LOG(error) << "[kwingrab] virtual output creation failed: "sv << (stream_error_msg.empty() ? "timeout"s : stream_error_msg);
+        return -1;
+      }
+
+      // The new wl_output global shows up after the stream is created; bind it and wait for its
+      // name and current mode so capture and input mapping can find it.
+      const auto deadline = std::chrono::steady_clock::now() + 3s;
+      while (std::chrono::steady_clock::now() < deadline) {
+        if (wl_display_roundtrip(wl_display) < 0) {
+          BOOST_LOG(error) << "[kwingrab] lost Wayland connection while waiting for the virtual output"sv;
+          return -1;
+        }
+        for (const auto &[output, params] : outputs) {
+          if (known_outputs.contains(output) || params->name.empty() || params->width <= 0 || params->height <= 0) {
+            continue;
+          }
+          out_params = params;
+          BOOST_LOG(info) << "[kwingrab] Virtual output '"sv << params->name << "' created at "sv
+                          << params->pos_x << "x"sv << params->pos_y << " with mode "sv
+                          << params->width << "x"sv << params->height;
+          return 0;
+        }
+        std::this_thread::sleep_for(20ms);
+      }
+
+      BOOST_LOG(error) << "[kwingrab] KWin created the virtual output stream but the output never appeared"sv;
+      return -1;
+    }
+
+    /**
+     * @brief Process Wayland events for this connection until @p stop_fd becomes readable.
+     *
+     * A long-lived connection must keep reading, otherwise KWin's queued events fill the socket
+     * buffer and the compositor drops the client (and with it the virtual output).
+     *
+     * @param stop_fd Read end of a pipe; any data on it ends the loop.
+     */
+    void dispatch_until(int stop_fd) {
+      const int display_fd = wl_display_get_fd(wl_display);
+      while (true) {
+        while (wl_display_prepare_read(wl_display) != 0) {
+          wl_display_dispatch_pending(wl_display);
+        }
+        wl_display_flush(wl_display);
+
+        std::array<struct pollfd, 2> fds {{
+          {.fd = display_fd, .events = POLLIN, .revents = 0},
+          {.fd = stop_fd, .events = POLLIN, .revents = 0},
+        }};
+        if (poll(fds.data(), fds.size(), -1) < 0) {
+          wl_display_cancel_read(wl_display);
+          if (errno == EINTR) {
+            continue;
+          }
+          return;
+        }
+        if (fds[1].revents) {
+          wl_display_cancel_read(wl_display);
+          return;
+        }
+        if (fds[0].revents & (POLLERR | POLLHUP)) {
+          wl_display_cancel_read(wl_display);
+          BOOST_LOG(warning) << "[kwingrab] virtual output connection closed by the compositor"sv;
+          return;
+        }
+        if (wl_display_read_events(wl_display) < 0 || wl_display_dispatch_pending(wl_display) < 0) {
+          BOOST_LOG(warning) << "[kwingrab] virtual output connection failed"sv;
+          return;
+        }
+      }
+    }
+
     uint32_t out_node_id = PW_ID_ANY;  ///< Out node ID.
     uint64_t out_objectserial = SPA_ID_INVALID;  ///< Out objectserial.
     std::shared_ptr<output_parameter_t> out_params = nullptr;  ///< Out params.
@@ -702,10 +830,250 @@ namespace kwin {
 
     std::unique_ptr<screencast_t> screencast;  ///< Screencast.
   };
+
+  /**
+   * KWin script that keeps streamed game windows on the virtual output.
+   *
+   * New windows open on whichever output KWin considers active (usually the one under the host's
+   * mouse), so a game launched for the Moonlight player could otherwise appear on the host's own
+   * monitor. While the virtual output exists, Steam Big Picture and Steam game windows are sent to it.
+   */
+  class window_router_t {
+  public:
+    window_router_t(const window_router_t &) = delete;
+    window_router_t &operator=(const window_router_t &) = delete;
+
+    explicit window_router_t(const std::string &output_name) {
+      const auto runtime_dir = lizardbyte::common::get_env("XDG_RUNTIME_DIR");
+      if (runtime_dir.empty()) {
+        BOOST_LOG(warning) << "[kwingrab] XDG_RUNTIME_DIR unset; game windows will not be moved to the virtual display"sv;
+        return;
+      }
+      script_path = std::filesystem::path(runtime_dir) / (std::string(plugin_name) + ".js");
+
+      std::ofstream script(script_path, std::ios::trunc);
+      if (!script) {
+        BOOST_LOG(warning) << "[kwingrab] cannot write KWin window-routing script to "sv << script_path;
+        return;
+      }
+      script << script_source(output_name);
+      script.close();
+
+      GError *error = nullptr;
+      bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
+      if (!bus) {
+        BOOST_LOG(warning) << "[kwingrab] no session bus for KWin scripting: "sv << (error ? error->message : "unknown");
+        g_clear_error(&error);
+        return;
+      }
+
+      // Drop a stale copy from a previous run before loading the fresh one.
+      call("unloadScript", g_variant_new("(s)", plugin_name), G_VARIANT_TYPE("(b)"));
+      if (!call("loadScript", g_variant_new("(ss)", script_path.c_str(), plugin_name), G_VARIANT_TYPE("(i)"))) {
+        return;
+      }
+      if (!call("start", nullptr, nullptr)) {
+        return;
+      }
+      loaded = true;
+      BOOST_LOG(info) << "[kwingrab] Routing Steam game windows to virtual output '"sv << output_name << '\'';
+    }
+
+    ~window_router_t() {
+      if (loaded) {
+        call("unloadScript", g_variant_new("(s)", plugin_name), G_VARIANT_TYPE("(b)"));
+      }
+      if (bus) {
+        g_object_unref(bus);
+      }
+      if (!script_path.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(script_path, ec);
+      }
+    }
+
+  private:
+    static constexpr const char *plugin_name = "sunshine-virtual-display";
+
+    GDBusConnection *bus = nullptr;
+    std::filesystem::path script_path;
+    bool loaded = false;
+
+    bool call(const char *method, GVariant *parameters, const GVariantType *reply_type) {
+      GError *error = nullptr;
+      GVariant *reply = g_dbus_connection_call_sync(
+        bus,
+        "org.kde.KWin",
+        "/Scripting",
+        "org.kde.kwin.Scripting",
+        method,
+        parameters,
+        reply_type,
+        G_DBUS_CALL_FLAGS_NONE,
+        2000,
+        nullptr,
+        &error
+      );
+      if (!reply) {
+        BOOST_LOG(warning) << "[kwingrab] KWin scripting call "sv << method << " failed: "sv << (error ? error->message : "unknown");
+        g_clear_error(&error);
+        return false;
+      }
+      g_variant_unref(reply);
+      return true;
+    }
+
+    static std::string script_source(const std::string &output_name) {
+      // JSON-style escaping is enough for a JS string literal containing an output name.
+      std::string quoted = "\"";
+      for (const char c : output_name) {
+        if (c == '"' || c == '\\') {
+          quoted += '\\';
+        }
+        quoted += c;
+      }
+      quoted += '"';
+
+      return "const targetName = " + quoted + R"JS(;
+
+function targetOutput() {
+  for (const output of workspace.screens) {
+    if (output.name === targetName) {
+      return output;
+    }
+  }
+  return null;
+}
+
+function isStreamedGame(window) {
+  if (!window || !window.normalWindow) {
+    return false;
+  }
+  const resourceClass = String(window.resourceClass || "").toLowerCase();
+  return resourceClass.startsWith("steam_app_") ||
+    resourceClass === "gamescope" ||
+    String(window.caption || "") === "Steam Big Picture Mode";
+}
+
+function route(window) {
+  const output = targetOutput();
+  if (output && isStreamedGame(window) && window.output !== output) {
+    workspace.sendClientToScreen(window, output);
+  }
+}
+
+function track(window) {
+  route(window);
+  window.captionChanged.connect(() => route(window));
+}
+
+workspace.windowAdded.connect(track);
+for (const window of workspace.windowList()) {
+  track(window);
+}
+)JS";
+    }
+  };
+
+  /**
+   * Session-scoped virtual output.
+   *
+   * Holds a dedicated Wayland connection with an open `stream_virtual_output` stream, which is what
+   * keeps KWin's virtual output alive. Capture uses ordinary `stream_output` streams on this output,
+   * so encoder probing and capture re-initialization never add or remove monitors.
+   */
+  class virtual_output_t {
+  public:
+    virtual_output_t(const virtual_output_t &) = delete;
+    virtual_output_t &operator=(const virtual_output_t &) = delete;
+    virtual_output_t() = default;
+
+    ~virtual_output_t() {
+      stop();
+    }
+
+    int start(const std::string &description, int width, int height, double scale, bool route_windows) {
+      if (pipe(stop_pipe.data()) < 0) {
+        BOOST_LOG(error) << "[kwingrab] cannot create virtual output control pipe"sv;
+        return -1;
+      }
+
+      screencast = std::make_unique<screencast_t>();
+      if (screencast->init(true) < 0 || screencast->start_virtual("Moonlight", description, width, height, scale) < 0) {
+        screencast.reset();
+        return -1;
+      }
+      name = screencast->out_params->name;
+
+      dispatcher = std::thread([this]() {
+        screencast->dispatch_until(stop_pipe[0]);
+      });
+
+      if (route_windows) {
+        router = std::make_unique<window_router_t>(name);
+      }
+      return 0;
+    }
+
+    void stop() {
+      router.reset();
+      if (dispatcher.joinable()) {
+        const char byte = 0;
+        std::ignore = write(stop_pipe[1], &byte, 1);
+        dispatcher.join();
+      }
+      // Closing the stream and connection makes KWin remove the output.
+      screencast.reset();
+      for (auto &fd : stop_pipe) {
+        if (fd >= 0) {
+          close(fd);
+          fd = -1;
+        }
+      }
+    }
+
+    const std::string &output_name() const {
+      return name;
+    }
+
+  private:
+    std::unique_ptr<screencast_t> screencast;
+    std::unique_ptr<window_router_t> router;
+    std::thread dispatcher;
+    std::array<int, 2> stop_pipe {-1, -1};
+    std::string name;
+  };
+
+  /**
+   * @brief Process-wide virtual display state shared by session hooks and capture.
+   */
+  struct virtual_display_state_t {
+    std::mutex mutex;  ///< Guards every member below.
+    std::unique_ptr<virtual_output_t> output;  ///< Active virtual output, if any.
+    int width = 0;  ///< Physical width the active output was created with.
+    int height = 0;  ///< Physical height the active output was created with.
+    double scale = 1.0;  ///< Scale the active output was created with.
+  };
+
+  virtual_display_state_t &virtual_display_state() {
+    static virtual_display_state_t state;
+    return state;
+  }
+
+  /**
+   * @brief Name of the active virtual output, or an empty string.
+   */
+  std::string active_virtual_output_name() {
+    auto &state = virtual_display_state();
+    std::lock_guard lock {state.mutex};
+    return state.output ? state.output->output_name() : std::string {};
+  }
 }  // namespace kwin
 
 // Public API for misc.cpp
 namespace platf {
+  bool kwin_capture_selected();  // misc.cpp
+
   /**
    * @brief Create a KWin screencast display backend.
    *
@@ -720,8 +1088,14 @@ namespace platf {
       return nullptr;
     }
 
+    // While a session owns a virtual output, it is the only thing worth capturing.
+    auto target_name = display_name;
+    if (auto virtual_name = kwin::active_virtual_output_name(); !virtual_name.empty()) {
+      target_name = std::move(virtual_name);
+    }
+
     auto display = std::make_shared<kwin::kwin_t>();
-    if (display->init(hwdevice_type, display_name, config)) {
+    if (display->init(hwdevice_type, target_name, config)) {
       return nullptr;
     }
 
@@ -734,11 +1108,72 @@ namespace platf {
    * @return KWin display names, or an empty list when KWin capture is unavailable.
    */
   std::vector<std::string> kwin_display_names() {
+    if (auto virtual_name = kwin::active_virtual_output_name(); !virtual_name.empty()) {
+      return {std::move(virtual_name)};
+    }
+
     const auto screencast = std::make_unique<kwin::screencast_t>();
     if (screencast->init() < 0) {
       return {};
     }
     return screencast->get_output_names();
+  }
+
+  /**
+   * @brief Create (or reuse) the per-session virtual output at the client's resolution.
+   *
+   * @param width Client width in pixels.
+   * @param height Client height in pixels.
+   * @param client_name Paired client name, shown in the display description.
+   * @return True when a virtual output is active afterwards.
+   */
+  bool kwin_virtual_display_start(int width, int height, const std::string &client_name) {
+    const auto &settings = config::video.virtual_display;
+    auto &state = kwin::virtual_display_state();
+    std::lock_guard lock {state.mutex};
+
+    if (!kwin_capture_selected()) {
+      BOOST_LOG(info) << "[kwingrab] Virtual display needs KWin capture (capture = kwin); streaming an existing monitor"sv;
+      return false;
+    }
+    if (width <= 0 || height <= 0) {
+      BOOST_LOG(warning) << "[kwingrab] client requested no resolution; not creating a virtual display"sv;
+      return false;
+    }
+    if (state.output && state.width == width && state.height == height && state.scale == settings.scale) {
+      BOOST_LOG(info) << "[kwingrab] Reusing virtual output '"sv << state.output->output_name() << '\'';
+      return true;
+    }
+
+    state.output.reset();
+    auto output = std::make_unique<kwin::virtual_output_t>();
+    const auto description = client_name.empty() ? "Moonlight"s : "Moonlight (" + client_name + ")";
+    if (output->start(description, width, height, settings.scale, settings.move_game_windows) < 0) {
+      BOOST_LOG(warning) << "[kwingrab] Virtual display unavailable; streaming an existing monitor instead"sv;
+      return false;
+    }
+
+    state.output = std::move(output);
+    state.width = width;
+    state.height = height;
+    state.scale = settings.scale;
+    return true;
+  }
+
+  /**
+   * @brief Remove the per-session virtual output, if one exists.
+   */
+  void kwin_virtual_display_stop() {
+    auto &state = kwin::virtual_display_state();
+    std::lock_guard lock {state.mutex};
+    if (!state.output) {
+      return;
+    }
+
+    BOOST_LOG(info) << "[kwingrab] Removing virtual output '"sv << state.output->output_name() << '\'';
+    state.output.reset();
+    state.width = 0;
+    state.height = 0;
   }
 
   /**

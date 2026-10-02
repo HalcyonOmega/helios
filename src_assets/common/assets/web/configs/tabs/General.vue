@@ -150,5 +150,13 @@ function removeCmd(index) {
               v-model="config.system_tray"
               default="true"
     ></Checkbox>
+
+    <!-- List installed Steam games -->
+    <Checkbox class="mb-3"
+              id="steam_library"
+              locale-prefix="config"
+              v-model="config.steam_library"
+              default="true"
+    ></Checkbox>
   </div>
 </template>

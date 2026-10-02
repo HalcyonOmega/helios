@@ -1317,6 +1317,15 @@ namespace platf {
   bool verify_kwin() {
     return !kwin_display_names().empty();
   }
+
+  /**
+   * @brief Report whether KWin ScreenCast is the active capture backend.
+   *
+   * Per-session virtual outputs are only reachable through KWin capture.
+   */
+  bool kwin_capture_selected() {
+    return sources[source::KWIN];
+  }
 #endif
 
   /**
@@ -1460,6 +1469,15 @@ namespace platf {
 
     // Avoid mutating config directly if Portal needs to run in fallback capture mode.
     std::string selected_capture = config::video.capture;
+
+#ifdef SUNSHINE_BUILD_KWIN
+    // Per-session virtual displays need KWin capture. Prefer it when the user left the capture
+    // method on automatic and KWin screencasting works; otherwise keep the normal probe order.
+    if (selected_capture.empty() && config::video.virtual_display.enabled && window_system == window_system_e::WAYLAND && verify_kwin()) {
+      BOOST_LOG(info) << "Virtual display enabled: using KWin ScreenCast capture"sv;
+      selected_capture = "kwin";
+    }
+#endif
 
     // When Portal is explicitly selected, probe it first so other capture methods can be considered for fallback capture.
 #ifdef SUNSHINE_BUILD_PORTAL

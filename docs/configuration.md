@@ -300,6 +300,33 @@ consent prompt for directory ACLs, so the Web UI shows setup steps for correctin
     </tr>
 </table>
 
+### steam_library
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            List every installed Steam game as an app, launched through the Steam client and shown with
+            Steam's cached cover art. Steam tools (Proton, Steam Linux Runtime, redistributables) are skipped,
+            and games already present in `apps.json` (same name or same `rungameid`) are not duplicated.
+            Newly installed games appear the next time a client refreshes its app list.
+            @note{Applies to Linux only (native and Flatpak Steam).}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            enabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            steam_library = enabled
+            @endcode</td>
+    </tr>
+</table>
+
 ## Input
 
 ### controller
@@ -1507,6 +1534,85 @@ consent prompt for directory ACLs, so the Web UI shows setup steps for correctin
     <tr>
         <td>1-1000</td>
         <td>Specify your own value. The real minimum may differ from this value.</td>
+    </tr>
+</table>
+
+### virtual_display
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Give every streaming session its own KDE Plasma output, created at the client's requested
+            resolution when the app launches and removed when it quits (or when the last client leaves while
+            no app runs). Capture and absolute mouse/touch input target that output, so the host's monitors
+            stay free for local use. When enabled and `capture` is left on automatic, KWin capture is chosen.
+            If KWin capture is unavailable, an existing monitor is streamed instead.
+            @note{Applies to Linux with KDE Plasma (KWin ScreenCast protocol v2+) only. KWin virtual outputs run at 60 Hz.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            enabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            virtual_display = enabled
+            @endcode</td>
+    </tr>
+</table>
+
+### virtual_display_scale
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Compositor scale factor for the virtual display. The captured stream always matches the client's
+            resolution; larger values make the desktop and menus bigger on the client.
+            @note{Applies to Linux with KDE Plasma only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            1.0
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            virtual_display_scale = 2.0
+            @endcode</td>
+    </tr>
+</table>
+
+### virtual_display_move_windows
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            While a virtual display exists, move Steam Big Picture and Steam game windows (`steam_app_*`,
+            gamescope) onto it, so games launched for the Moonlight player never open on the host's monitors.
+            Implemented as a temporary KWin script that is unloaded with the virtual display.
+            @note{Applies to Linux with KDE Plasma only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            enabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            virtual_display_move_windows = enabled
+            @endcode</td>
     </tr>
 </table>
 

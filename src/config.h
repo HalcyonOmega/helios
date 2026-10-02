@@ -221,6 +221,20 @@ namespace config {
 
     int max_bitrate;  ///< Maximum bitrate ceiling in kbps for bitrate requested from the client.
     double minimum_fps_target;  ///< Lowest framerate that will be used when streaming. Range 0-1000, 0 = half of client's requested framerate.
+
+    /**
+     * @brief Per-session virtual display (Linux / KDE Plasma).
+     *
+     * When enabled, every streaming session gets its own compositor-created output sized to the
+     * client's requested resolution. Capture and absolute input target that output, so the host's
+     * physical monitors stay free for local use. The output is removed when the app quits (or the
+     * last client disconnects while no app runs).
+     */
+    struct virtual_display_t {
+      bool enabled = true;  ///< Create a virtual output for each streaming session (falls back to normal capture when unsupported).
+      double scale = 1.0;  ///< Compositor scale factor for the virtual output; the captured size stays at the client resolution.
+      bool move_game_windows = true;  ///< Move Steam game and Big Picture windows onto the virtual output while it exists.
+    } virtual_display;  ///< Virtual display settings.
   };
 
   /**
@@ -393,6 +407,8 @@ namespace config {
     // List of allowed origins for CSRF protection (e.g., "https://example.com,https://app.example.com")
     // Comma-separated list of additional origins. Default includes localhost variants and web UI port.
     std::vector<std::string> csrf_allowed_origins;  ///< Additional origins allowed by CSRF validation.
+
+    bool steam_library = true;  ///< List installed Steam games as streamable apps, with Steam's cover art.
   };
 
   extern video_t video;

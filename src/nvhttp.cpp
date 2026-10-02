@@ -1590,7 +1590,7 @@ namespace nvhttp {
 
     std::ifstream in(app_image, std::ios::binary);
     SimpleWeb::CaseInsensitiveMultimap headers;
-    headers.emplace("Content-Type", "image/png");
+    headers.emplace("Content-Type", proc::app_image_content_type(app_image));
     response->write(SimpleWeb::StatusCode::success_ok, in, headers);
     response->close_connection_after_response = true;
   }

@@ -1620,7 +1620,7 @@ namespace confighttp {
       }
 
       SimpleWeb::CaseInsensitiveMultimap headers;
-      headers.emplace("Content-Type", "image/png");
+      headers.emplace("Content-Type", proc::app_image_content_type(validated_path));
       headers.emplace("X-Frame-Options", "DENY");
       headers.emplace("Content-Security-Policy", "frame-ancestors 'none';");
 

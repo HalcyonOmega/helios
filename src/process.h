@@ -208,10 +208,24 @@ namespace proc {
 
   bool check_valid_png(const std::filesystem::path &path);
   /**
+   * @brief Validates a path whether it is a JPEG.
+   *
+   * @param path The path to the JPEG file.
+   * @return true if the file starts with a JPEG SOI marker.
+   */
+  bool check_valid_jpeg(const std::filesystem::path &path);
+  /**
+   * @brief HTTP Content-Type for a validated app image path.
+   *
+   * @param image_path Path returned by validate_app_image_path().
+   * @return "image/jpeg" for JPEG files, otherwise "image/png".
+   */
+  std::string app_image_content_type(const std::string &image_path);
+  /**
    * @brief Validate app image path.
    *
    * @param app_image_path Candidate image path from the application configuration.
-   * @return Existing PNG path, or the default application image when validation fails.
+   * @return Existing PNG or JPEG path, or the default application image when validation fails.
    */
   std::string validate_app_image_path(std::string app_image_path);
   /**

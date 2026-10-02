@@ -85,6 +85,36 @@ const config = ref(props.config)
       :config="config"
     />
 
+    <PlatformLayout :platform="platform">
+      <template #linux>
+        <!-- Virtual display per session -->
+        <Checkbox class="mb-3"
+                  id="virtual_display"
+                  locale-prefix="config"
+                  v-model="config.virtual_display"
+                  default="true"
+        ></Checkbox>
+
+        <template v-if="config.virtual_display !== 'disabled'">
+          <!-- Virtual display scale -->
+          <div class="mb-3">
+            <label for="virtual_display_scale" class="form-label">{{ $t('config.virtual_display_scale') }}</label>
+            <input type="number" min="0.5" max="4" step="0.25" class="form-control" id="virtual_display_scale"
+                   v-model="config.virtual_display_scale" />
+            <div class="form-text">{{ $t('config.virtual_display_scale_desc') }}</div>
+          </div>
+
+          <!-- Move game windows to the virtual display -->
+          <Checkbox class="mb-3"
+                    id="virtual_display_move_windows"
+                    locale-prefix="config"
+                    v-model="config.virtual_display_move_windows"
+                    default="true"
+          ></Checkbox>
+        </template>
+      </template>
+    </PlatformLayout>
+
     <DisplayDeviceOptions
       :platform="platform"
       :config="config"

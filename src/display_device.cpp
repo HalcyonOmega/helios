@@ -39,6 +39,13 @@
   #include <display_device/macos/settings_manager.h>
 #endif
 
+#ifdef SUNSHINE_BUILD_KWIN
+namespace platf {
+  bool kwin_virtual_display_start(int width, int height, const std::string &client_name);
+  void kwin_virtual_display_stop();
+}  // namespace platf
+#endif
+
 namespace display_device {
   namespace {
     constexpr std::chrono::milliseconds DEFAULT_RETRY_INTERVAL {5000};
@@ -785,6 +792,9 @@ namespace display_device {
     class deinit_t: public platf::deinit_t {
     public:
       ~deinit_t() override {
+#ifdef SUNSHINE_BUILD_KWIN
+        platf::kwin_virtual_display_stop();
+#endif
         std::lock_guard lock {DD_DATA.mutex};
         try {
           // This may throw if used incorrectly. At the moment this will not happen, however
@@ -842,6 +852,14 @@ namespace display_device {
   }
 
   void configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
+#ifdef SUNSHINE_BUILD_KWIN
+    // libdisplaydevice has no Linux backend. On KDE Plasma, give the session its own compositor
+    // output instead of touching the host's monitors; fall through when that is unavailable.
+    if (video_config.virtual_display.enabled && platf::kwin_virtual_display_start(session.width, session.height, session.client_name)) {
+      return;
+    }
+#endif
+
     const auto result {parse_configuration(video_config, session)};
     if (const auto *parsed_config {std::get_if<SingleDisplayConfiguration>(&result)}; parsed_config) {
       configure_display(*parsed_config);
@@ -891,6 +909,9 @@ namespace display_device {
   }
 
   void revert_configuration() {
+#ifdef SUNSHINE_BUILD_KWIN
+    platf::kwin_virtual_display_stop();
+#endif
     std::lock_guard lock {DD_DATA.mutex};
     revert_configuration_unlocked(revert_option_e::try_indefinitely_with_delay);
   }

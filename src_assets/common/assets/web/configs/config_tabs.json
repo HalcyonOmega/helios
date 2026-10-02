@@ -8,7 +8,8 @@
       "min_log_level": 2,
       "global_prep_cmd": [],
       "notify_pre_releases": "disabled",
-      "system_tray": "enabled"
+      "system_tray": "enabled",
+      "steam_library": "enabled"
     }
   },
   {
@@ -44,6 +45,9 @@
       "install_steam_audio_drivers": "enabled",
       "adapter_name": "",
       "output_name": "",
+      "virtual_display": "enabled",
+      "virtual_display_scale": 1.0,
+      "virtual_display_move_windows": "enabled",
       "dd_configuration_option": "disabled",
       "dd_resolution_option": "auto",
       "dd_manual_resolution": "",

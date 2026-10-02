@@ -1734,6 +1734,10 @@ namespace config {
     int_f(vars, "max_bitrate", video.max_bitrate);
     double_between_f(vars, "minimum_fps_target", video.minimum_fps_target, {0.0, 1000.0});
 
+    bool_f(vars, "virtual_display", video.virtual_display.enabled);
+    double_between_f(vars, "virtual_display_scale", video.virtual_display.scale, {0.5, 4.0});
+    bool_f(vars, "virtual_display_move_windows", video.virtual_display.move_game_windows);
+
     path_f(vars, "pkey", nvhttp.pkey);
     path_f(vars, "cert", nvhttp.cert);
     string_f(vars, "sunshine_name", nvhttp.sunshine_name);
@@ -1864,6 +1868,7 @@ namespace config {
 
     bool_f(vars, "notify_pre_releases", sunshine.notify_pre_releases);
     bool_f(vars, "system_tray", sunshine.system_tray);
+    bool_f(vars, "steam_library", sunshine.steam_library);
 
     int port = sunshine.port;
     int_between_f(vars, "port"s, port, {1024 + nvhttp::PORT_HTTPS, 65535 - rtsp_stream::RTSP_SETUP_PORT});
