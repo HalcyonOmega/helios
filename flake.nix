@@ -1,5 +1,5 @@
 {
-  description = "Sunshine fork for NixOS + KDE Plasma: per-client virtual displays, Steam library import, tuned defaults";
+  description = "Helios: a Sunshine fork for NixOS + KDE Plasma with per-session virtual displays, per-app audio, Steam library import and tuned defaults";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
@@ -27,7 +27,7 @@
       });
 
       overlays.default = final: _prev: {
-        stream-host = mkPackage final;
+        helios = mkPackage final;
       };
 
       nixosModules.default = import ./nix/module.nix self;

@@ -60,7 +60,7 @@ let
   '';
 
   # The flake source carries no submodules; graft in only what a Linux build needs.
-  fullSrc = runCommand "stream-host-src-${version}" { } (
+  fullSrc = runCommand "helios-src-${version}" { } (
     ''
       cp -r ${src} $out
       chmod -R u+w $out
@@ -80,7 +80,7 @@ let
   pythonWithJinja = python3.withPackages (ps: [ ps.jinja2 ]);
 in
 stdenv.mkDerivation (finalAttrs: {
-  pname = "stream-host";
+  pname = "helios";
   inherit version;
 
   src = fullSrc;
@@ -163,7 +163,7 @@ stdenv.mkDerivation (finalAttrs: {
     (lib.cmakeFeature "FFMPEG_PREPARED_BINARIES" "${ffmpeg}/ffmpeg")
     (lib.cmakeFeature "SUNSHINE_ASSETS_DIR" "share/sunshine")
     (lib.cmakeFeature "SUNSHINE_EXECUTABLE_PATH" "${placeholder "out"}/bin/sunshine")
-    (lib.cmakeFeature "SUNSHINE_PUBLISHER_NAME" "stream-host")
+    (lib.cmakeFeature "SUNSHINE_PUBLISHER_NAME" "Helios")
     (lib.cmakeFeature "SUNSHINE_PUBLISHER_WEBSITE" "https://github.com/HalcyonOmega")
     (lib.cmakeFeature "SUNSHINE_PUBLISHER_ISSUE_URL" "https://github.com/HalcyonOmega")
     # Keep udev/systemd payloads inside $out instead of the systemd store path pkg-config reports.
@@ -196,8 +196,8 @@ stdenv.mkDerivation (finalAttrs: {
   };
 
   meta = {
-    description = "Sunshine fork tuned for NixOS and KDE Plasma, with per-client virtual displays";
-    homepage = "https://github.com/LizardByte/Sunshine";
+    description = "Helios: Sunshine fork for NixOS and KDE Plasma with per-session virtual displays";
+    homepage = "https://github.com/HalcyonOmega/helios";
     license = lib.licenses.gpl3Only;
     mainProgram = "sunshine";
     platforms = [ "x86_64-linux" ];

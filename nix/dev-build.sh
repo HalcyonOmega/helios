@@ -9,7 +9,7 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-build_dir="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/stream-host/build}"
+build_dir="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/helios/build}"
 ffmpeg_link="$(dirname "${build_dir}")/ffmpeg"
 
 if [[ ! -e "${ffmpeg_link}" ]]; then

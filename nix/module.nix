@@ -6,10 +6,10 @@ self:
   ...
 }:
 let
-  cfg = config.services.stream-host;
+  cfg = config.services.helios;
 
   # Opinionated defaults for a KDE Plasma desktop that streams to Moonlight on the LAN.
-  # Every value can be overridden through `services.stream-host.settings`.
+  # Every value can be overridden through `services.helios.settings`.
   defaultSettings = {
     # Give each Moonlight session its own KDE output at the client's resolution, and move
     # Steam game / Big Picture windows onto it, so the host's monitors stay usable.
@@ -33,14 +33,14 @@ let
   };
 in
 {
-  options.services.stream-host = {
-    enable = lib.mkEnableOption "the stream-host Sunshine fork (configures services.sunshine)";
+  options.services.helios = {
+    enable = lib.mkEnableOption "Helios, a Sunshine fork for KDE Plasma (configures services.sunshine)";
 
     package = lib.mkOption {
       type = lib.types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
-      defaultText = lib.literalExpression "stream-host.packages.\${system}.default";
-      description = "The stream-host package to run.";
+      defaultText = lib.literalExpression "helios.packages.\${system}.default";
+      description = "The Helios package to run.";
     };
 
     openFirewall = lib.mkOption {
