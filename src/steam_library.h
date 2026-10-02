@@ -44,4 +44,14 @@ namespace steam_library {
    * @return Command that asks the running (or a new) Steam client to start the game.
    */
   std::string launch_command(const std::string &appid);
+
+  /**
+   * @brief Whether a game with @p appid is currently running.
+   *
+   * Steam starts every game process with SteamGameId=<appid> in its environment.
+   *
+   * @param appid Steam application id.
+   * @return True when a process of the current user carries that SteamGameId.
+   */
+  bool is_running(const std::string &appid);
 }  // namespace steam_library

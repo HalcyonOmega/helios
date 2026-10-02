@@ -71,12 +71,11 @@ namespace kwin {
       if (initialized) {
         return;
       }
-      auto filenameprefix = std::format("{}.kwin", PROJECT_FQDN);
-      auto executablepath = get_executable_full_path();
 
       // System: Check system XDG applications for permission (usually installed with Sunshine)
-      if (check_kwin_system_permissions(filenameprefix, executablepath)) {
+      if (check_kwin_system_permissions(filename_prefix(), get_executable_full_path())) {
         create_file = false;
+        using_system_permission = true;
         initialized = true;
         return;
       }
@@ -89,21 +88,56 @@ namespace kwin {
         return;
       }
 
+      install_user_permission();
+      initialized = true;
+    }
+
+    /**
+     * @brief Switch to a per-user permission file after KWin ignored the system one.
+     *
+     * KWin only honours desktop files that are in KDE's service cache. After a NixOS switch the
+     * system file lives under a new store path that the running session has not indexed yet,
+     * while files in the user's applications directory are picked up within seconds.
+     *
+     * @return True when a per-user permission file is now in place and a retry is worthwhile.
+     */
+    static bool fall_back_to_user_permission() {
+      if (!using_system_permission || is_permission_system_deactivated()) {
+        return false;
+      }
+      using_system_permission = false;
+      BOOST_LOG(info) << "[kwingrab] KWin did not honour the system permission file yet; installing a per-user one";
+      create_file = true;
+      return install_user_permission();
+    }
+
+  private:
+    static std::string filename_prefix() {
+      return std::format("{}.kwin", PROJECT_FQDN);
+    }
+
+    /**
+     * @brief Ensure the user's applications directory holds a permission file for this binary.
+     *
+     * @return True when a matching per-user file exists (pre-existing or newly written).
+     */
+    static bool install_user_permission() {
+      const auto executablepath = get_executable_full_path();
+
       // User: Check and (if necessary) update user's XDG applications for permission
       auto user_applications = get_xdg_user_applications_path();
       if (user_applications.empty()) {
         BOOST_LOG(error) << "[kwingrab] Failed to determine user application directory. Cannot continue with permission setup.";
-        return;
+        return false;
       }
       // Create non-existing application directory so we can write into it
       if (!std::filesystem::exists(user_applications) && !std::filesystem::create_directories(user_applications)) {
         // In case of failure log and return
         BOOST_LOG(error) << "[kwingrab] Failed to create application directory. Cannot continue with permission setup.";
         create_file = false;
-        initialized = true;
-        return;
+        return false;
       }
-      auto user_filepathprefix = (std::filesystem::path(user_applications) / filenameprefix).string();
+      auto user_filepathprefix = (std::filesystem::path(user_applications) / filename_prefix()).string();
       for (const auto &path : std::filesystem::directory_iterator(user_applications)) {
         // List existing files for prefix and check if they contain this executable or remove them
         const auto entry = path.path().string();
@@ -127,32 +161,34 @@ namespace kwin {
           }
         }
       }
-      if (create_file) {
-        // Generate a unique file identifier based on current unixtime
-        auto user_filepathidentifier = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1);
-        auto user_filepath = std::format("{}{}.desktop", user_filepathprefix, user_filepathidentifier);
-        // Write new file if necessary
-        std::ofstream filestream(user_filepath);
-        if (filestream.is_open()) {
-          filestream << "[Desktop Entry]" << std::endl
-                     << "Exec=" << executablepath << std::endl
-                     << "X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1" << std::endl
-                     << "Type=Application" << std::endl
-                     << "Name="sv << PROJECT_FQDN << "-kwin-wayland-permission" << std::endl
-                     << "Comment=Sunshine KWin screencast permission" << std::endl
-                     << "NoDisplay=true" << std::endl;
-          filestream.close();
-          // Give KWin time to catch up to the new desktop file
-          BOOST_LOG(info) << "[kwingrab] Created temporary KWin wayland permission file: "sv << user_filepath << " - Waiting 3 seconds for KDE to pick up new file.";
-          std::this_thread::sleep_for(std::chrono::milliseconds(3000));
-        } else {
-          BOOST_LOG(warning) << "[kwingrab] Failed to open temporary KWin wayland permission file: "sv << user_filepath;
-        }
+      if (!create_file) {
+        return true;
       }
 
-      initialized = true;
+      // Generate a unique file identifier based on current unixtime
+      auto user_filepathidentifier = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1);
+      auto user_filepath = std::format("{}{}.desktop", user_filepathprefix, user_filepathidentifier);
+      // Write new file if necessary
+      std::ofstream filestream(user_filepath);
+      if (!filestream.is_open()) {
+        BOOST_LOG(warning) << "[kwingrab] Failed to open temporary KWin wayland permission file: "sv << user_filepath;
+        return false;
+      }
+      filestream << "[Desktop Entry]" << std::endl
+                 << "Exec=" << executablepath << std::endl
+                 << "X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1" << std::endl
+                 << "Type=Application" << std::endl
+                 << "Name="sv << PROJECT_FQDN << "-kwin-wayland-permission" << std::endl
+                 << "Comment=Sunshine KWin screencast permission" << std::endl
+                 << "NoDisplay=true" << std::endl;
+      filestream.close();
+      // Give KWin time to catch up to the new desktop file
+      BOOST_LOG(info) << "[kwingrab] Created temporary KWin wayland permission file: "sv << user_filepath << " - Waiting 3 seconds for KDE to pick up new file.";
+      std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+      return true;
     }
 
+  public:
     /**
      * @brief Check whether newly initialized.
      *
@@ -165,6 +201,7 @@ namespace kwin {
   private:
     static inline bool initialized = false;
     static inline bool create_file = true;
+    static inline bool using_system_permission = false;
 
     static std::filesystem::path get_home_dir() {
       // Check HOME environment variable
@@ -277,6 +314,13 @@ namespace kwin {
     screencast_t &operator=(screencast_t &&) = delete;  // Do not allow to copying
 
     ~screencast_t() {
+      disconnect();
+    }
+
+    /**
+     * @brief Release every Wayland object and close the connection.
+     */
+    void disconnect() {
       // Release KDE screencast wayland extensions and reset pointers
       if (kde_screencast_stream_v1_) {
         zkde_screencast_stream_unstable_v1_close(kde_screencast_stream_v1_);
@@ -328,6 +372,38 @@ namespace kwin {
         screencast_permission_helper_t::setup();
       }
 
+      if (connect() < 0) {
+        return -1;
+      }
+
+      if (!is_kwin_screencasting_available() && setup_permissions && screencast_permission_helper_t::fall_back_to_user_permission()) {
+        // KWin decides which protocols to offer when a client connects, so reconnect after the
+        // per-user permission file is in place; KDE may need a few more moments to index it.
+        for (int attempt = 0; attempt < 5 && !is_kwin_screencasting_available(); ++attempt) {
+          if (attempt > 0) {
+            std::this_thread::sleep_for(1s);
+          }
+          disconnect();
+          if (connect() < 0) {
+            return -1;
+          }
+        }
+      }
+
+      if (!is_kwin_screencasting_available()) {
+        BOOST_LOG(debug) << "[kwingrab] zkde_screencast_unstable_v1 not found in registry."sv;
+        return -1;
+      }
+
+      return 0;
+    }
+
+    /**
+     * @brief Open the Wayland connection and bind KWin's globals.
+     *
+     * @return 0 on success, -1 on failure.
+     */
+    int connect() {
       std::string wl_name;
       if (!lizardbyte::common::get_env("WAYLAND_DISPLAY", wl_name)) {
         BOOST_LOG(error) << "[kwingrab] WAYLAND_DISPLAY not set"sv;
@@ -346,12 +422,6 @@ namespace kwin {
 
       // We need a second roundtrip after binding outputs to get wl_output events
       wl_display_roundtrip(wl_display);
-
-      if (!is_kwin_screencasting_available()) {
-        BOOST_LOG(debug) << "[kwingrab] zkde_screencast_unstable_v1 not found in registry."sv;
-        return -1;
-      }
-
       return 0;
     }
 

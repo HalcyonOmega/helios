@@ -8,6 +8,7 @@
 // standard includes
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -257,5 +258,30 @@ namespace steam_library {
 
   std::string launch_command(const std::string &appid) {
     return "steam steam://rungameid/" + appid;
+  }
+
+  bool is_running(const std::string &appid) {
+#ifdef __linux__
+    if (appid.empty()) {
+      return false;
+    }
+    const auto needle = "SteamGameId=" + appid;
+    std::error_code ec;
+    for (const auto &entry : fs::directory_iterator("/proc", ec)) {
+      const auto pid = entry.path().filename().string();
+      if (pid.empty() || !std::ranges::all_of(pid, [](unsigned char c) { return std::isdigit(c); })) {
+        continue;
+      }
+      // Unreadable for other users' processes, which is fine: games run as the streaming user.
+      std::ifstream environ(entry.path() / "environ", std::ios::binary);
+      std::string variable;
+      while (std::getline(environ, variable, '\0')) {
+        if (variable == needle) {
+          return true;
+        }
+      }
+    }
+#endif
+    return false;
   }
 }  // namespace steam_library

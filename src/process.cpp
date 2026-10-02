@@ -272,7 +272,14 @@ namespace proc {
       }
     }
 
-    for (auto &cmd : _app.detached) {
+    // Steam games keep running outside Sunshine's process tree. If the game is already up (for
+    // example after the client disconnected), attach to it instead of asking Steam to launch again.
+    const bool attach_to_running_game = !_app.steam_appid.empty() && steam_library::is_running(_app.steam_appid);
+    if (attach_to_running_game) {
+      BOOST_LOG(info) << '[' << _app.name << "] is already running; attaching instead of launching it again"sv;
+    }
+
+    for (auto &cmd : attach_to_running_game ? std::vector<std::string> {} : _app.detached) {
       const auto command = prepare_command(cmd);
       boost::filesystem::path working_dir = _app.working_dir.empty() ?
                                               find_working_directory(command, _env) :
