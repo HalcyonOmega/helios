@@ -39,6 +39,9 @@
   wayland,
   vulkan-headers,
   vulkan-loader,
+  bash,
+  coreutils,
+  diffutils,
 
   # Provided by the flake.
   src,
@@ -180,6 +183,30 @@ stdenv.mkDerivation (finalAttrs: {
     COMMIT = rev;
   };
 
+  # KWin grants its screencast protocol to an executable whose path appears in a desktop file
+  # that KWin has indexed. Every update moves the binary to a new /nix/store path, and a running
+  # Plasma session can keep refusing that path until the next login. `helios` therefore runs
+  # the host from a fixed per-user copy, so its permission file stays valid across switches.
+  postInstall = ''
+    cat > $out/bin/helios <<EOF
+    #!${bash}/bin/bash
+    set -euo pipefail
+    PATH=${lib.makeBinPath [ coreutils diffutils ]}
+    state="\''${XDG_STATE_HOME:-\$HOME/.local/state}/helios"
+    target="\$state/sunshine"
+    source="$out/bin/.sunshine-wrapped"
+    mkdir -p "\$state"
+    if ! cmp -s "\$source" "\$target"; then
+      tmp=\$(mktemp "\$state/.sunshine.XXXXXX")
+      cp "\$source" "\$tmp"
+      chmod 0755 "\$tmp"
+      mv -f "\$tmp" "\$target"
+    fi
+    exec -a sunshine "\$target" "\$@"
+    EOF
+    chmod +x $out/bin/helios
+  '';
+
   postFixup = ''
     # wrapQtAppsHook turns bin/sunshine into a launcher script. KWin grants the
     # screencast protocol by matching the client's real executable against this file.
@@ -189,6 +216,10 @@ stdenv.mkDerivation (finalAttrs: {
     # The NixOS module runs the user unit as `sunshine.service`.
     substituteInPlace $out/share/applications/dev.lizardbyte.app.Sunshine.desktop \
       --replace-fail "Exec=/usr/bin/env systemctl start --u app-dev.lizardbyte.app.Sunshine" "Exec=systemctl --user start sunshine"
+
+    # wrapQtAppsHook only wraps ELF files; give the `helios` launcher the same environment so
+    # the per-user copy it starts runs exactly like bin/sunshine.
+    wrapQtApp $out/bin/helios
   '';
 
   passthru = {
@@ -199,7 +230,7 @@ stdenv.mkDerivation (finalAttrs: {
     description = "Helios: Sunshine fork for NixOS and KDE Plasma with per-session virtual displays";
     homepage = "https://github.com/HalcyonOmega/helios";
     license = lib.licenses.gpl3Only;
-    mainProgram = "sunshine";
+    mainProgram = "helios";
     platforms = [ "x86_64-linux" ];
   };
 })
