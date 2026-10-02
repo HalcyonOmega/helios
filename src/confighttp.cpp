@@ -1127,6 +1127,23 @@ namespace confighttp {
         }
       }
 
+      // Games found automatically (installed Steam games) are not part of apps.json; list them
+      // separately so the UI can show them without offering to edit or delete them.
+      proc::refresh(config::stream.file_apps);
+      auto detected = nlohmann::json::array();
+      for (const auto &app : proc::proc.get_apps()) {
+        if (app.steam_appid.empty()) {
+          continue;
+        }
+        detected.push_back({
+          {"name", app.name},
+          {"source", "steam"},
+          {"steam_appid", app.steam_appid},
+          {"has_cover", proc::validate_app_image_path(app.image_path) != DEFAULT_APP_IMAGE_PATH},
+        });
+      }
+      file_tree["detected_apps"] = std::move(detected);
+
       send_response(response, file_tree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "GetApps: "sv << e.what();
@@ -1564,6 +1581,43 @@ namespace confighttp {
       BOOST_LOG(warning) << "SaveConfig: "sv << e.what();
       bad_request(response, request, e.what());
     }
+  }
+
+  /**
+   * @brief Get the cover image of an automatically detected Steam game.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * Only games currently listed from the Steam library are served, so the path never comes
+   * from the request.
+   *
+   * @api_examples{/api/detected-covers/4001890|:| GET|:| null}
+   */
+  void getDetectedCover(const resp_https_t &response, const req_https_t &request) {
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    const std::string steam_appid = request->path_match[1];
+    const auto &apps = proc::proc.get_apps();
+    const auto app = std::ranges::find(apps, steam_appid, &proc::ctx_t::steam_appid);
+    if (app == apps.end()) {
+      not_found(response, request, "Detected game not found");
+      return;
+    }
+
+    const auto image = proc::validate_app_image_path(app->image_path);
+    std::ifstream in(image, std::ios::binary);
+    if (image == DEFAULT_APP_IMAGE_PATH || !in) {
+      not_found(response, request, "Cover image not found");
+      return;
+    }
+
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", proc::app_image_content_type(image));
+    headers.emplace("X-Frame-Options", "DENY");
+    headers.emplace("Content-Security-Policy", "frame-ancestors 'none';");
+    response->write(SimpleWeb::StatusCode::success_ok, in, headers);
   }
 
   /**
@@ -2496,6 +2550,7 @@ namespace confighttp {
     server.resource["^/api/config$"]["POST"] = saveConfig;
     server.resource["^/api/configLocale$"]["GET"] = getLocale;
     server.resource["^/api/covers/([0-9]+)$"]["GET"] = getCover;
+    server.resource["^/api/detected-covers/([0-9]+)$"]["GET"] = getDetectedCover;
     server.resource["^/api/covers/upload$"]["POST"] = uploadCover;
     server.resource["^/api/csrf-token$"]["GET"] = getCSRFToken;
     server.resource["^/api/password$"]["POST"] = savePassword;

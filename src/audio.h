@@ -83,6 +83,7 @@ namespace audio {
     std::unique_ptr<platf::audio_control_t> control;  ///< Platform audio-control implementation.
 
     bool restore_sink;  ///< Whether Sunshine should restore the original sink when capture ends.
+    bool routing_app_audio = false;  ///< Whether only the app's audio was routed instead of switching the default sink.
     platf::sink_t sink;  ///< Original sink captured before Sunshine switched devices.
   };
 

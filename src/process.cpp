@@ -420,6 +420,10 @@ namespace proc {
     return _app.name;
   }
 
+  bool proc_t::app_launches_processes() const {
+    return _app_id > 0 && (!_app.cmd.empty() || !_app.detached.empty());
+  }
+
   void proc_t::update_apps_and_env(proc_t &&other) {
     if (_app_id > 0 || placebo) {
       // Preserve session-specific environment variables for the running app
@@ -897,6 +901,7 @@ namespace proc {
             );
           }
           ctx.detached = {steam_library::launch_command(game.appid)};
+          ctx.steam_appid = game.appid;
           ctx.name = game.name;
           ctx.image_path = game.image_path;
           ctx.elevated = false;

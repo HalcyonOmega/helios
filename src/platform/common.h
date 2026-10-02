@@ -856,6 +856,28 @@ namespace platf {
     virtual std::optional<sink_t> sink_info() = 0;
 
     /**
+     * @brief Route only the running app's audio to @p sink, leaving the default output alone.
+     *
+     * Used while the session has its own virtual display, so the host keeps its sound while a
+     * remote player streams a game. Backends that cannot do this return nonzero, and Sunshine
+     * falls back to switching the default sink.
+     *
+     * @param sink Virtual sink that the stream captures.
+     * @return 0 when routing started, nonzero to fall back to set_sink().
+     */
+    virtual int route_app_audio([[maybe_unused]] const std::string &sink) {
+      return -1;
+    }
+
+    /**
+     * @brief Stop app-audio routing and move routed streams back to @p host_sink.
+     *
+     * @param host_sink Sink the routed streams return to.
+     */
+    virtual void stop_app_audio_routing([[maybe_unused]] const std::string &host_sink) {
+    }
+
+    /**
      * @brief Destroy the audio control.
      */
     virtual ~audio_control_t() = default;

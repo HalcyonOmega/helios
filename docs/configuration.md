@@ -1616,6 +1616,34 @@ consent prompt for directory ACLs, so the Web UI shows setup steps for correctin
     </tr>
 </table>
 
+### isolate_app_audio
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            While a session has its own virtual display (see `virtual_display`), send only the streamed app's
+            audio to the client instead of switching the host's default output. Steam games (recognized by the
+            `SteamGameId` Steam sets for game processes) and processes Sunshine started are moved to the
+            stream sink; everything else keeps playing on the host. Routed streams return to the host output
+            when the session ends. Apps without commands (such as "Desktop") still stream all audio.
+            @note{Applies to Linux with KDE Plasma and PulseAudio or PipeWire only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            enabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            isolate_app_audio = enabled
+            @endcode</td>
+    </tr>
+</table>
+
 ## Network
 
 ### upnp

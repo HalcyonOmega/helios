@@ -111,6 +111,14 @@ const config = ref(props.config)
                     v-model="config.virtual_display_move_windows"
                     default="true"
           ></Checkbox>
+
+          <!-- Stream only the app's audio -->
+          <Checkbox class="mb-3"
+                    id="isolate_app_audio"
+                    locale-prefix="config"
+                    v-model="config.isolate_app_audio"
+                    default="true"
+          ></Checkbox>
         </template>
       </template>
     </PlatformLayout>

@@ -75,6 +75,7 @@ namespace proc {
     std::string output;  ///< Captured output from the launched process.
     std::string image_path;  ///< Image path.
     std::string id;  ///< Stable identifier for the configured application.
+    std::string steam_appid;  ///< Steam app id for games listed from the Steam library; empty for apps.json entries.
     bool elevated;  ///< Whether the process should be launched elevated.
     bool auto_detach;  ///< Whether the process should detach automatically.
     bool wait_all;  ///< Whether Sunshine waits for all child processes.
@@ -144,6 +145,14 @@ namespace proc {
      * @return Name of the most recently launched application.
      */
     std::string get_last_run_app_name();
+    /**
+     * @brief Whether the running app starts its own processes.
+     *
+     * False for apps without commands (such as "Desktop"), which only stream the screen.
+     *
+     * @return True when the current app has a command or detached commands.
+     */
+    bool app_launches_processes() const;
     /**
      * @brief Terminate the launched application process.
      */

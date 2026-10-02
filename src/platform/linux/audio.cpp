@@ -3,9 +3,15 @@
  * @brief Definitions for audio control on Linux.
  */
 // standard includes
+#include <atomic>
 #include <bitset>
+#include <cstdlib>
+#include <fstream>
+#include <mutex>
+#include <set>
 #include <sstream>
 #include <thread>
+#include <unistd.h>
 
 // lib includes
 #include <boost/regex.hpp>
@@ -17,10 +23,15 @@
 #include "src/config.h"
 #include "src/logging.h"
 #include "src/platform/common.h"
+#include "src/process.h"
 #include "src/thread_safe.h"
 
 namespace platf {
   using namespace std::literals;
+
+#ifdef SUNSHINE_BUILD_KWIN
+  bool kwin_virtual_display_active();  // kwingrab.cpp
+#endif
 
   /**
    * @brief Position mapping.
@@ -279,6 +290,72 @@ namespace platf {
     }
 
     /**
+     * @brief Parent process id read from `/proc/<pid>/stat`, or 0.
+     *
+     * @param pid Process to inspect.
+     * @return Parent pid, or 0 when unknown.
+     */
+    pid_t parent_pid(pid_t pid) {
+      std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+      std::string content;
+      std::getline(stat, content);
+      // The command name (field 2) is parenthesised and may contain spaces; fields resume after it.
+      const auto close = content.rfind(')');
+      if (close == std::string::npos || close + 2 >= content.size()) {
+        return 0;
+      }
+      std::istringstream rest(content.substr(close + 2));
+      char state = 0;
+      pid_t ppid = 0;
+      rest >> state >> ppid;
+      return ppid;
+    }
+
+    /**
+     * @brief Whether Steam launched @p pid as part of a game (Steam sets SteamGameId for games).
+     *
+     * @param pid Process to inspect.
+     * @return True when the process environment carries a non-zero SteamGameId.
+     */
+    bool is_steam_game_process(pid_t pid) {
+      std::ifstream environ("/proc/" + std::to_string(pid) + "/environ", std::ios::binary);
+      std::string entry;
+      while (std::getline(environ, entry, '\0')) {
+        if (entry.starts_with("SteamGameId=")) {
+          const auto value = entry.substr(sizeof("SteamGameId=") - 1);
+          return !value.empty() && value != "0";
+        }
+      }
+      return false;
+    }
+
+    /**
+     * @brief Whether an audio client belongs to the streamed app.
+     *
+     * Steam games are recognized by their SteamGameId (they are children of the Steam client, not
+     * of Sunshine); anything else counts when Sunshine itself started it.
+     *
+     * @param pid Process id of the audio client.
+     * @return True when the client's audio should go to the stream.
+     */
+    bool belongs_to_streamed_app(pid_t pid) {
+      if (pid <= 1) {
+        return false;
+      }
+      if (is_steam_game_process(pid)) {
+        return true;
+      }
+      const auto self = getpid();
+      for (int depth = 0; pid > 1 && depth < 64; ++depth) {
+        pid = parent_pid(pid);
+        if (pid == self) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /**
      * @brief PulseAudio server controller that creates and removes Sunshine sinks.
      */
     class server_t: public audio_control_t {
@@ -292,6 +369,16 @@ namespace platf {
       loop_t loop;  ///< PulseAudio threaded mainloop instance.
       ctx_t ctx;  ///< PulseAudio threaded mainloop context.
       std::string requested_sink;  ///< Requested sink.
+
+      /**
+       * @brief Sink index that the streamed app's audio is routed to, or PA_INVALID_INDEX.
+       *
+       * Read from the PulseAudio mainloop thread (subscription callbacks) and written by the
+       * session thread that starts and stops routing.
+       */
+      std::atomic<std::uint32_t> routing_target {PA_INVALID_INDEX};
+      std::mutex routed_mutex;  ///< Guards routed_inputs.
+      std::set<std::uint32_t> routed_inputs;  ///< Sink inputs moved to the stream sink this session.
 
       struct {
         std::uint32_t stereo = PA_INVALID_INDEX;  ///< PulseAudio module index for the stereo null sink.
@@ -618,6 +705,131 @@ namespace platf {
       }
 
       /**
+       * @brief Index of the sink named @p name.
+       *
+       * @param name PulseAudio sink name.
+       * @return Sink index, or nullopt when the sink does not exist.
+       */
+      std::optional<std::uint32_t> sink_index(const std::string &name) {
+        auto alarm = safe::make_alarm<int>();
+        std::optional<std::uint32_t> found;
+
+        cb_t<pa_sink_info *> f = [&](ctx_t::pointer, const pa_sink_info *info, int eol) {
+          if (!info) {
+            alarm->ring(eol ? 0 : -1);
+            return;
+          }
+          found = info->index;
+        };
+
+        op_t op {pa_context_get_sink_info_by_name(ctx.get(), name.c_str(), cb<pa_sink_info *>, &f)};
+        if (!op) {
+          return std::nullopt;
+        }
+        alarm->wait();
+        return found;
+      }
+
+      /**
+       * @brief Process id recorded in a PulseAudio property list, or 0.
+       *
+       * Pulse clients set application.process.id; PipeWire also records the socket peer as
+       * pipewire.sec.pid on client objects.
+       */
+      static pid_t pid_from(const pa_proplist *properties) {
+        for (const char *key : {PA_PROP_APPLICATION_PROCESS_ID, "pipewire.sec.pid"}) {
+          if (const char *value = pa_proplist_gets(properties, key)) {
+            return static_cast<pid_t>(std::strtol(value, nullptr, 10));
+          }
+        }
+        return 0;
+      }
+
+      /**
+       * @brief Move sink input @p input to the stream sink when @p pid belongs to the streamed app.
+       *
+       * Runs on the PulseAudio mainloop thread.
+       */
+      void route_if_streamed_app(pa_context *context, std::uint32_t input, pid_t pid, const std::string &app) {
+        const auto target = routing_target.load();
+        if (target == PA_INVALID_INDEX || !belongs_to_streamed_app(pid)) {
+          return;
+        }
+
+        if (auto *op = pa_context_move_sink_input_by_index(context, input, target, nullptr, nullptr)) {
+          pa_operation_unref(op);
+        }
+        std::lock_guard lock {routed_mutex};
+        if (routed_inputs.insert(input).second) {
+          BOOST_LOG(info) << "Streaming audio from ["sv << (app.empty() ? "unknown"s : app) << "] (pid "sv << pid << ')';
+        }
+      }
+
+      /**
+       * @brief Sink input waiting for its client's process id (native PipeWire streams carry it only there).
+       */
+      struct pending_input_t {
+        server_t *self;  ///< Owning server.
+        std::uint32_t input;  ///< Sink input index.
+        std::string app;  ///< Application name for logging.
+      };
+
+      static void on_client_info(pa_context *context, const pa_client_info *client, int eol, void *userdata) {
+        auto *pending = static_cast<pending_input_t *>(userdata);
+        if (eol || !client) {
+          delete pending;
+          return;
+        }
+        pending->self->route_if_streamed_app(context, pending->input, pid_from(client->proplist), pending->app);
+      }
+
+      static void on_sink_input_info(pa_context *context, const pa_sink_input_info *input, int eol, void *userdata) {
+        if (eol || !input) {
+          return;
+        }
+        auto *self = static_cast<server_t *>(userdata);
+        const auto target = self->routing_target.load();
+        if (target == PA_INVALID_INDEX || input->sink == target) {
+          return;
+        }
+
+        const char *name = pa_proplist_gets(input->proplist, PA_PROP_APPLICATION_NAME);
+        std::string app = name ? name : "";
+        if (const auto pid = pid_from(input->proplist); pid > 0) {
+          self->route_if_streamed_app(context, input->index, pid, app);
+          return;
+        }
+        if (input->client == PA_INVALID_INDEX) {
+          return;
+        }
+
+        auto *pending = new pending_input_t {self, input->index, std::move(app)};
+        if (auto *op = pa_context_get_client_info(context, input->client, on_client_info, pending)) {
+          pa_operation_unref(op);
+        } else {
+          delete pending;
+        }
+      }
+
+      static void on_subscription_event(pa_context *context, pa_subscription_event_type_t type, std::uint32_t index, void *userdata) {
+        auto *self = static_cast<server_t *>(userdata);
+        if ((type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK) != PA_SUBSCRIPTION_EVENT_SINK_INPUT) {
+          return;
+        }
+        if ((type & PA_SUBSCRIPTION_EVENT_TYPE_MASK) == PA_SUBSCRIPTION_EVENT_REMOVE) {
+          std::lock_guard lock {self->routed_mutex};
+          self->routed_inputs.erase(index);
+          return;
+        }
+        if (self->routing_target.load() == PA_INVALID_INDEX) {
+          return;
+        }
+        if (auto *op = pa_context_get_sink_input_info(context, index, on_sink_input_info, self)) {
+          pa_operation_unref(op);
+        }
+      }
+
+      /**
        * @brief Update the sink value on the backend.
        *
        * @param sink Audio sink name to route or capture.
@@ -653,7 +865,66 @@ namespace platf {
         return 0;
       }
 
+      int route_app_audio(const std::string &sink) override {
+#ifdef SUNSHINE_BUILD_KWIN
+        // Only worth it when the session has its own screen; a mirrored desktop streams all audio.
+        if (!kwin_virtual_display_active() || !proc::proc.app_launches_processes()) {
+          return -1;
+        }
+#else
+        return -1;
+#endif
+
+        const auto target = sink_index(sink);
+        if (!target) {
+          return -1;
+        }
+
+        requested_sink = sink;
+        routing_target = *target;
+        BOOST_LOG(info) << "Streaming only the app's audio to ["sv << sink << "]; this PC keeps its default output"sv;
+
+        // Every callback below runs on the PulseAudio mainloop thread, so moves never race the loop.
+        pa_context_set_subscribe_callback(ctx.get(), on_subscription_event, this);
+        if (auto *op = pa_context_subscribe(ctx.get(), PA_SUBSCRIPTION_MASK_SINK_INPUT, nullptr, nullptr)) {
+          pa_operation_unref(op);
+        }
+        // Catch streams the app opened before routing started.
+        if (auto *op = pa_context_get_sink_input_info_list(ctx.get(), on_sink_input_info, this)) {
+          pa_operation_unref(op);
+        }
+        return 0;
+      }
+
+      void stop_app_audio_routing(const std::string &host_sink) override {
+        if (routing_target.exchange(PA_INVALID_INDEX) == PA_INVALID_INDEX) {
+          return;
+        }
+        if (auto *op = pa_context_subscribe(ctx.get(), PA_SUBSCRIPTION_MASK_NULL, nullptr, nullptr)) {
+          pa_operation_unref(op);
+        }
+
+        std::set<std::uint32_t> routed;
+        {
+          std::lock_guard lock {routed_mutex};
+          routed.swap(routed_inputs);
+        }
+        if (!host_sink.empty()) {
+          for (const auto input : routed) {
+            // Streams that already ended are gone; moving them simply fails.
+            auto alarm = safe::make_alarm<int>();
+            op_t op {pa_context_move_sink_input_by_name(ctx.get(), input, host_sink.c_str(), success_cb, alarm.get())};
+            if (op) {
+              alarm->wait();
+            }
+          }
+          BOOST_LOG(info) << "Returned "sv << routed.size() << " app audio stream(s) to ["sv << host_sink << ']';
+        }
+        requested_sink.clear();
+      }
+
       ~server_t() override {
+        stop_app_audio_routing({});
         unload_null(index.stereo);
         unload_null(index.surround51);
         unload_null(index.surround71);

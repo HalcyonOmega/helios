@@ -213,7 +213,11 @@ namespace audio {
       // If the selected sink is different than the current one, change sinks.
       ref->restore_sink = ref->sink.host != *sink;
       if (ref->restore_sink) {
-        if (control->set_sink(*sink)) {
+        // With a per-session virtual display, prefer sending only the app's audio to the stream so
+        // the host keeps its own sound; fall back to switching the default sink.
+        if (!config.flags[config_t::HOST_AUDIO] && config::audio.isolate_app_audio && control->route_app_audio(*sink) == 0) {
+          ref->routing_app_audio = true;
+        } else if (control->set_sink(*sink)) {
           return;
         }
       }
@@ -316,6 +320,7 @@ namespace audio {
 
     // The default sink has not been replaced yet.
     ctx.restore_sink = false;
+    ctx.routing_app_audio = false;
 
     if (!(ctx.control = platf::audio_control())) {
       return 0;
@@ -337,6 +342,13 @@ namespace audio {
   void stop_audio_control(audio_ctx_t &ctx) {
     // restore audio-sink if applicable
     if (!ctx.restore_sink) {
+      return;
+    }
+
+    if (ctx.routing_app_audio) {
+      // The default sink was never changed; just send the routed app streams home.
+      const std::string &host_sink = ctx.sink.host.empty() ? config::audio.sink : ctx.sink.host;
+      ctx.control->stop_app_audio_routing(host_sink);
       return;
     }
 

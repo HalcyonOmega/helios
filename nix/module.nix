@@ -16,6 +16,9 @@ let
     virtual_display = "enabled";
     virtual_display_move_windows = "enabled";
 
+    # During such sessions only the game's audio goes to the stream; the desk keeps its sound.
+    isolate_app_audio = "enabled";
+
     # List every installed Steam game in Moonlight, with Steam's own cover art.
     steam_library = "enabled";
 

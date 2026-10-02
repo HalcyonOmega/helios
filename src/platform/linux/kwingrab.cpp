@@ -1188,4 +1188,13 @@ namespace platf {
     }
     return true;
   }
+
+  /**
+   * @brief Report whether a per-session virtual output currently exists.
+   *
+   * @return True while a session owns a virtual output.
+   */
+  bool kwin_virtual_display_active() {
+    return !kwin::active_virtual_output_name().empty();
+  }
 }  // namespace platf

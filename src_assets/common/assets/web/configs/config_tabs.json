@@ -48,6 +48,7 @@
       "virtual_display": "enabled",
       "virtual_display_scale": 1.0,
       "virtual_display_move_windows": "enabled",
+      "isolate_app_audio": "enabled",
       "dd_configuration_option": "disabled",
       "dd_resolution_option": "auto",
       "dd_manual_resolution": "",

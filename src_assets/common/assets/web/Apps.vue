@@ -105,6 +105,38 @@
       </div>
     </div>
 
+    <!-- Games found automatically (installed Steam games); managed by the Steam library, not editable -->
+    <div v-if="displayedDetectedApps.length > 0" class="mt-5">
+      <h2 class="h4">{{ $t('apps.detected_title') }} ({{ displayedDetectedApps.length }})</h2>
+      <p class="text-muted">{{ $t('apps.detected_desc') }}</p>
+      <div class="row g-3">
+        <div class="col-12 col-sm-6 col-md-4 col-lg-3" v-for="game in displayedDetectedApps" :key="game.source + ':' + game.steam_appid">
+          <div class="card app-card h-100">
+            <div class="app-poster-container">
+              <img
+                v-if="game.has_cover"
+                :src="'/api/detected-covers/' + game.steam_appid"
+                class="app-poster"
+                :alt="game.name"
+                @error="handleImageError"
+              />
+              <div v-else class="app-poster-placeholder">
+                <span class="app-initial">{{ game.name.charAt(0).toUpperCase() }}</span>
+              </div>
+              <div class="app-poster-overlay">
+                <div class="app-overlay-badges">
+                  <span class="badge app-flag-badge">{{ $t('apps.badge_steam') }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="card-body d-flex flex-column">
+              <h5 class="card-title mb-0">{{ game.name }}</h5>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Edit / Add Application modal -->
     <div class="modal fade" ref="editModal" tabindex="-1" aria-labelledby="appEditModalLabel"
          aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
@@ -683,6 +715,7 @@
     data() {
       return {
         apps: [],
+        detectedApps: [],
         editForm: null,
         editFormError: "",
         detachedCmd: "",
@@ -744,6 +777,13 @@
         }
 
         return list;
+      },
+      displayedDetectedApps() {
+        const query = this.searchQuery.trim().toLowerCase();
+        const list = query
+          ? this.detectedApps.filter((game) => (game.name || "").toLowerCase().includes(query))
+          : [...this.detectedApps];
+        return list.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }));
       },
       sortModeLabel() {
         switch (this.sortMode) {
@@ -848,6 +888,7 @@
           .then((r) => r.json())
           .then((r) => {
             this.apps = r.apps;
+            this.detectedApps = r.detected_apps || [];
           });
       },
       confirmDelete() {
