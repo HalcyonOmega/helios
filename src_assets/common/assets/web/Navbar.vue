@@ -24,6 +24,12 @@
               </RouterLink>
             </li>
             <li class="nav-item">
+              <RouterLink class="nav-link" to="/type">
+                <Keyboard :size="18" class="icon"></Keyboard>
+                {{ $t('navbar.type') }}
+              </RouterLink>
+            </li>
+            <li class="nav-item">
               <RouterLink class="nav-link" to="/apps">
                 <Layers :size="18" class="icon"></Layers>
                 {{ $t('navbar.applications') }}
@@ -82,7 +88,7 @@
 </template>
 
 <script>
-import { CircleUserRound, Home, Info, Layers, Lock, LogOut, Settings, Shield, Star } from '@lucide/vue'
+import { CircleUserRound, Home, Info, Keyboard, Layers, Lock, LogOut, Settings, Shield, Star } from '@lucide/vue'
 import ThemeToggle from './ThemeToggle.vue'
 import Notification from './Notification.vue'
 
@@ -92,6 +98,7 @@ export default {
     Notification,
     Home,
     Lock,
+    Keyboard,
     Layers,
     Star,
     Settings,

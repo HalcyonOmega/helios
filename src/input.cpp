@@ -10,6 +10,7 @@ extern "C" {
 
 // standard includes
 #include <algorithm>
+#include <array>
 #include <bitset>
 #include <chrono>
 #include <cmath>
@@ -18,6 +19,7 @@ extern "C" {
 #include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -1305,6 +1307,118 @@ namespace input {
 
     int size = util::endian::big(packet->header.size) - sizeof(packet->header.magic);
     platf::unicode(platf_input, packet->text, size);
+  }
+
+  namespace {
+    /**
+     * @brief A key on the US QWERTY layout, and whether shift is needed, for one ASCII character.
+     */
+    struct typed_key_t {
+      std::uint16_t key_code;  ///< Windows virtual-key code of the key.
+      bool shift;  ///< Whether shift must be held while the key is pressed.
+    };
+
+    /**
+     * @brief Find the US QWERTY key that types an ASCII character.
+     *
+     * @param c ASCII character.
+     * @return The key to press, or nothing when no single key types the character.
+     */
+    std::optional<typed_key_t> qwerty_key_for(const char c) {
+      if (c >= 'a' && c <= 'z') {
+        return typed_key_t {static_cast<std::uint16_t>(0x41 + (c - 'a')), false};
+      }
+      if (c >= 'A' && c <= 'Z') {
+        return typed_key_t {static_cast<std::uint16_t>(0x41 + (c - 'A')), true};
+      }
+      if (c >= '0' && c <= '9') {
+        return typed_key_t {static_cast<std::uint16_t>(0x30 + (c - '0')), false};
+      }
+      if (const auto digit = ")!@#$%^&*("sv.find(c); digit != std::string_view::npos) {
+        return typed_key_t {static_cast<std::uint16_t>(0x30 + digit), true};
+      }
+
+      struct punctuation_key_t {
+        std::uint16_t key_code;
+        char plain;
+        char shifted;
+      };
+
+      static constexpr std::array<punctuation_key_t, 11> punctuation {{
+        {0xBA, ';', ':'},
+        {0xBB, '=', '+'},
+        {0xBC, ',', '<'},
+        {0xBD, '-', '_'},
+        {0xBE, '.', '>'},
+        {0xBF, '/', '?'},
+        {0xC0, '`', '~'},
+        {0xDB, '[', '{'},
+        {0xDC, '\\', '|'},
+        {0xDD, ']', '}'},
+        {0xDE, '\'', '"'},
+      }};
+      for (const auto &key : punctuation) {
+        if (c == key.plain || c == key.shifted) {
+          return typed_key_t {key.key_code, c == key.shifted};
+        }
+      }
+
+      switch (c) {
+        case ' ':
+          return typed_key_t {0x20, false};
+        case '\t':
+          return typed_key_t {0x09, false};
+        case '\n':
+          return typed_key_t {0x0D, false};
+        default:
+          return std::nullopt;
+      }
+    }
+  }  // namespace
+
+  void type_text(std::string text) {
+    if (!config::input.keyboard || text.empty()) {
+      return;
+    }
+
+    dispatch_input_task([text = std::move(text)]() {
+      // Games often poll keyboard state instead of reading events, so give each key a moment.
+      constexpr auto key_hold = 4ms;
+
+      std::string unicode_run;
+      const auto flush_unicode = [&unicode_run]() {
+        if (!unicode_run.empty()) {
+          platf::unicode(platf_input, unicode_run.data(), static_cast<int>(unicode_run.size()));
+          unicode_run.clear();
+        }
+      };
+
+      for (const char c : text) {
+        if (static_cast<unsigned char>(c) >= 0x80) {
+          // Part of a non-ASCII UTF-8 sequence: no physical key types it.
+          unicode_run.push_back(c);
+          continue;
+        }
+
+        const auto key = qwerty_key_for(c);
+        if (!key) {
+          continue;  // Control characters other than tab and newline (including '\r').
+        }
+
+        flush_unicode();
+        if (key->shift) {
+          emit_keyboard_update(VKEY_LSHIFT, false, 0);
+        }
+        emit_keyboard_update(key->key_code, false, 0);
+        std::this_thread::sleep_for(key_hold);
+        emit_keyboard_update(key->key_code, true, 0);
+        if (key->shift) {
+          emit_keyboard_update(VKEY_LSHIFT, true, 0);
+        }
+        std::this_thread::sleep_for(key_hold);
+      }
+      flush_unicode();
+    });
   }
 
   /**

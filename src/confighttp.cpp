@@ -1982,6 +1982,66 @@ namespace confighttp {
   }
 
   /**
+   * @brief Type text into the host, for clients that cannot open an on-screen keyboard.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * The body is never logged because it may hold a password.
+   *
+   * @api_examples{/api/type|:| POST|:| {"text":"my-password","enter":true}}
+   */
+  void typeText(const resp_https_t &response, const req_https_t &request) {
+    if (!check_content_type(response, request, "application/json")) {
+      return;
+    }
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    std::string client_id = get_client_id(request);
+    if (!validate_csrf_token(response, request, client_id)) {
+      return;
+    }
+
+    constexpr std::size_t max_text_bytes = 2000;
+
+    std::stringstream ss;
+    ss << request->content.rdbuf();
+    std::string text;
+    try {
+      const nlohmann::json input_tree = nlohmann::json::parse(ss);
+      text = input_tree.value("text", "");
+      if (input_tree.value("enter", false)) {
+        text += '\n';
+      }
+    } catch (const std::exception &) {
+      // Parser messages can quote the body, so report a fixed message.
+      bad_request(response, request, "Expected a JSON object with a text field");
+      return;
+    }
+
+    if (text.empty()) {
+      bad_request(response, request, "Nothing to type");
+      return;
+    }
+    if (text.size() > max_text_bytes) {
+      bad_request(response, request, "Text is too long (2000 bytes at most)");
+      return;
+    }
+    if (!config::input.keyboard) {
+      bad_request(response, request, "Keyboard input is disabled in the configuration");
+      return;
+    }
+
+    BOOST_LOG(info) << "Typing "sv << text.size() << " bytes of text from the web UI"sv;
+    input::type_text(std::move(text));
+
+    nlohmann::json output_tree;
+    output_tree["status"] = true;
+    send_response(response, output_tree);
+  }
+
+  /**
    * @brief Reset the display device persistence.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
@@ -2557,6 +2617,7 @@ namespace confighttp {
     server.resource["^/api/pin$"]["DELETE"] = cancelPairing;
     server.resource["^/api/pin$"]["GET"] = getPendingPairings;
     server.resource["^/api/pin$"]["POST"] = savePin;
+    server.resource["^/api/type$"]["POST"] = typeText;
     server.resource["^/api/logs$"]["GET"] = getLogs;
     server.resource["^/api/reset-display-device-persistence$"]["POST"] = resetDisplayDevicePersistence;
     server.resource["^/api/reset-portal-token$"]["POST"] = resetPortalToken;

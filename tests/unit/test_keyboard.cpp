@@ -945,3 +945,75 @@ TEST_F(KeyboardPassthroughTest, ReleasesTheRemappedRightAltForKeyRightaltToKeyWi
 
   EXPECT_EQ(taken(), (std::vector<std::string> {released(VKEY_LWIN)}));
 }
+
+TEST_F(KeyboardPassthroughTest, TypesTextAsUsQwertyKeyPresses) {
+  input::type_text("aB1!\n");
+
+  EXPECT_EQ(
+    taken(),
+    (std::vector<std::string> {
+      pressed(VKEY_A),
+      released(VKEY_A),
+      pressed(VKEY_LSHIFT),
+      pressed(VKEY_B),
+      released(VKEY_B),
+      released(VKEY_LSHIFT),
+      pressed(0x31),
+      released(0x31),
+      pressed(VKEY_LSHIFT),
+      pressed(0x31),
+      released(0x31),
+      released(VKEY_LSHIFT),
+      pressed(VKEY_RETURN),
+      released(VKEY_RETURN),
+    })
+  );
+}
+
+TEST_F(KeyboardPassthroughTest, TypesEveryPrintableAsciiCharacterWithItsKey) {
+  for (const auto &key : qwerty_ascii_keys) {
+    SCOPED_TRACE(std::string {"'"} + key.plain + "' / '" + key.shifted + "'");
+
+    input::type_text(std::string {key.plain});
+    EXPECT_EQ(taken(), (std::vector<std::string> {pressed(key.key_code), released(key.key_code)}));
+
+    if (key.shifted != key.plain) {
+      input::type_text(std::string {key.shifted});
+      EXPECT_EQ(
+        taken(),
+        (std::vector<std::string> {pressed(VKEY_LSHIFT), pressed(key.key_code), released(key.key_code), released(VKEY_LSHIFT)})
+      );
+    }
+  }
+
+  input::type_text("\t");
+  EXPECT_EQ(taken(), (std::vector<std::string> {pressed(VKEY_TAB), released(VKEY_TAB)}));
+}
+
+TEST_F(KeyboardPassthroughTest, TypedTextSkipsCarriageReturnsAndControlCharacters) {
+  input::type_text("a\r\n\x01" "b");
+
+  EXPECT_EQ(
+    taken(),
+    (std::vector<std::string> {pressed(VKEY_A), released(VKEY_A), pressed(VKEY_RETURN), released(VKEY_RETURN), pressed(VKEY_B), released(VKEY_B)})
+  );
+}
+
+TEST_F(KeyboardPassthroughTest, TypedTextSendsNonAsciiThroughUnicodeInput) {
+  auto &keyboard = fake_keyboard();
+  const auto submitted = keyboard.submit_count();
+
+  // "é" is one UTF-8 run between two ASCII keys: no key presses for it, one Unicode text event.
+  input::type_text("a\xC3\xA9" "b");
+
+  EXPECT_EQ(taken(), (std::vector<std::string> {pressed(VKEY_A), released(VKEY_A), pressed(VKEY_B), released(VKEY_B)}));
+  EXPECT_EQ(keyboard.submit_count(), submitted + 1);
+}
+
+TEST_F(KeyboardPassthroughTest, TypedTextIsDroppedWhenKeyboardInputIsDisabled) {
+  config::input.keyboard = false;
+
+  input::type_text("abc");
+
+  EXPECT_TRUE(taken().empty());
+}

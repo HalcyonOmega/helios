@@ -567,7 +567,8 @@
     "theme_slate": "Slate",
     "theme_sunshine": "Sunshine",
     "toggle_theme": "Theme",
-    "troubleshoot": "Troubleshooting"
+    "troubleshoot": "Troubleshooting",
+    "type": "Type"
   },
   "logout": {
     "logged_out": "Logged Out",
@@ -781,6 +782,17 @@
     "select_file": "Select File",
     "title": "Browse",
     "up": "Up"
+  },
+  "type": {
+    "description": "Type into whatever text box has focus on this PC, for example from your phone while streaming to a TV.",
+    "failed": "The text could not be typed",
+    "key_enter": "Press Enter",
+    "key_tab": "Press Tab",
+    "placeholder": "Text to type",
+    "press_enter": "Press Enter afterwards",
+    "send": "Type on PC",
+    "sent": "Typed",
+    "title": "Type Text"
   },
   "welcome": {
     "confirm_password": "Confirm password",

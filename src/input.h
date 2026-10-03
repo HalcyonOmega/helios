@@ -10,8 +10,8 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
-#include <vector>
 
 // local includes
 #include "platform/common.h"
@@ -52,6 +52,17 @@ namespace input {
    * @brief Queue a raw input message for platform passthrough.
    */
   void passthrough(std::shared_ptr<input_t> &input, std::vector<std::uint8_t> &&input_data);
+
+  /**
+   * @brief Type text into the host as if it came from a keyboard.
+   *
+   * Printable ASCII, tab and newline are typed as real key presses on the US QWERTY layout, so
+   * they reach games and every toolkit. Other characters fall back to the platform's Unicode
+   * text input. Used by the web UI so clients without a text box can still fill in text fields.
+   *
+   * @param text UTF-8 text to type.
+   */
+  void type_text(std::string text);
 
   /**
    * @brief Initialize global input resources and platform backends.

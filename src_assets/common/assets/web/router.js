@@ -16,6 +16,7 @@ const routes = [
   { path: '/password', component: () => import('./Password.vue') },
   { path: '/pin', component: () => import('./Pin.vue') },
   { path: '/troubleshooting', component: () => import('./Troubleshooting.vue') },
+  { path: '/type', component: () => import('./Type.vue') },
   { path: '/welcome', component: () => import('./Welcome.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
