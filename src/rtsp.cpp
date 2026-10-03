@@ -23,6 +23,7 @@ extern "C" {
 
 // local includes
 #include "config.h"
+#include "entry_handler.h"
 #include "globals.h"
 #include "input.h"
 #include "logging.h"
@@ -1346,6 +1347,7 @@ namespace rtsp_stream {
     boost::system::error_code ec;
     if (server.bind(net::af_from_enum_string(config::sunshine.address_family), net::map_port(rtsp_stream::RTSP_SETUP_PORT), ec)) {
       BOOST_LOG(fatal) << "Couldn't bind RTSP server to port ["sv << net::map_port(rtsp_stream::RTSP_SETUP_PORT) << "], " << ec.message();
+      lifetime::desired_exit_code.store(1);
       shutdown_event->raise(true);
 
       return;

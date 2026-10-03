@@ -42,6 +42,7 @@
 #include "src/config.h"
 #include "src/platform/common.h"
 #include "src/video.h"
+#include "virtual_display_layout.h"
 
 using namespace std::literals;
 
@@ -179,7 +180,7 @@ namespace kwin {
                  << "X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1" << std::endl
                  << "Type=Application" << std::endl
                  << "Name="sv << PROJECT_FQDN << "-kwin-wayland-permission" << std::endl
-                 << "Comment=Sunshine KWin screencast permission" << std::endl
+                 << "Comment=Helios KWin screencast permission" << std::endl
                  << "NoDisplay=true" << std::endl;
       filestream.close();
       // Give KWin time to catch up to the new desktop file
@@ -488,8 +489,12 @@ namespace kwin {
           }
         }
       }
-      // Fall back to first element from the map in case of error
-      if (!output || !out_params) {
+      // A vanished virtual output must never redirect capture and input to a host monitor.
+      if (!output_name.empty() && (!output || !out_params)) {
+        BOOST_LOG(error) << "[kwingrab] Requested output no longer exists: " << output_name;
+        return -1;
+      }
+      if (output_name.empty()) {
         const auto output_ = outputs.begin();
         output = output_->first;
         out_params = output_->second;
@@ -582,11 +587,22 @@ namespace kwin {
 
       if (version >= ZKDE_SCREENCAST_UNSTABLE_V1_STREAM_VIRTUAL_OUTPUT_WITH_DESCRIPTION_SINCE_VERSION) {
         kde_screencast_stream_v1_ = zkde_screencast_unstable_v1_stream_virtual_output_with_description(
-          kde_screencast_v1_, name.c_str(), description.c_str(), logical_width, logical_height, fixed_scale, ZKDE_SCREENCAST_UNSTABLE_V1_POINTER_HIDDEN
+          kde_screencast_v1_,
+          name.c_str(),
+          description.c_str(),
+          logical_width,
+          logical_height,
+          fixed_scale,
+          ZKDE_SCREENCAST_UNSTABLE_V1_POINTER_HIDDEN
         );
       } else {
         kde_screencast_stream_v1_ = zkde_screencast_unstable_v1_stream_virtual_output(
-          kde_screencast_v1_, name.c_str(), logical_width, logical_height, fixed_scale, ZKDE_SCREENCAST_UNSTABLE_V1_POINTER_HIDDEN
+          kde_screencast_v1_,
+          name.c_str(),
+          logical_width,
+          logical_height,
+          fixed_scale,
+          ZKDE_SCREENCAST_UNSTABLE_V1_POINTER_HIDDEN
         );
       }
       zkde_screencast_stream_unstable_v1_add_listener(kde_screencast_stream_v1_, &stream_listener, this);
@@ -1069,11 +1085,16 @@ for (const window of workspace.windowList()) {
       }
 
       screencast = std::make_unique<screencast_t>();
-      if (screencast->init(true) < 0 || screencast->start_virtual("Moonlight", description, width, height, scale) < 0) {
+      if (screencast->init(true) < 0 || screencast->start_virtual("Helios-Moonlight", description, width, height, scale) < 0) {
         screencast.reset();
         return -1;
       }
       name = screencast->out_params->name;
+      if (!platf::position_virtual_output(name)) {
+        BOOST_LOG(error) << "[kwingrab] Cannot isolate the virtual output; removing it instead of overlapping the host desktop";
+        screencast.reset();
+        return -1;
+      }
 
       dispatcher = std::thread([this]() {
         screencast->dispatch_until(stop_pipe[0]);
@@ -1219,7 +1240,7 @@ namespace platf {
     auto output = std::make_unique<kwin::virtual_output_t>();
     const auto description = client_name.empty() ? "Moonlight"s : "Moonlight (" + client_name + ")";
     if (output->start(description, width, height, settings.scale, settings.move_game_windows) < 0) {
-      BOOST_LOG(warning) << "[kwingrab] Virtual display unavailable; streaming an existing monitor instead"sv;
+      BOOST_LOG(warning) << "[kwingrab] Virtual display unavailable; refusing to use a host monitor"sv;
       return false;
     }
 

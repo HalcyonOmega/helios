@@ -546,6 +546,9 @@ int main(int argc, char *argv[]) {
   }
 
   mainThreadLoop(shutdown_event);
+  if (tray_is_enabled && config::sunshine.system_tray) {
+    system_tray::end_tray();
+  }
 
   permission_watcher.request_stop();
   if (permission_watcher.joinable()) {

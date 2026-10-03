@@ -74,6 +74,7 @@ namespace display_device {
    *
    * @param video_config User's video related configuration.
    * @param session Session information.
+   * @return False if a requested isolated virtual display cannot be created safely.
    *
    * @examples
    * const std::shared_ptr<rtsp_stream::launch_session_t> launch_session;
@@ -82,7 +83,7 @@ namespace display_device {
    * configure_display(video_config, *launch_session);
    * @examples_end
    */
-  void configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session);
+  bool configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session);
 
   /**
    * @brief Configure the display device using the provided configuration.

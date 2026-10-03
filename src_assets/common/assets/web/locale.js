@@ -1,4 +1,5 @@
 import {createI18n} from "vue-i18n";
+import {brandMessage} from "./branding";
 
 // Import only the fallback language files
 import en from './public/assets/locale/en.json'
@@ -84,7 +85,8 @@ export default async function createSunshineI18n() {
     const i18n = createI18n({
         locale: locale, // set locale
         fallbackLocale: 'en', // set fallback locale
-        messages: messages
+        messages: messages,
+        postTranslation: brandMessage
     })
     return i18n;
 }

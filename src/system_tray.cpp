@@ -76,6 +76,7 @@
   #include "logging.h"
   #include "platform/common.h"
   #include "process.h"
+  #include "shutdown_loop.h"
   #include "src/entry_handler.h"
   #include "system_tray.h"
   #include "thread_safe.h"
@@ -314,7 +315,7 @@ namespace system_tray {
     .menu =
       (struct tray_menu[]) {
         // Tray menu labels currently use the project's English source strings.
-        {.text = "Open Sunshine", .cb = tray_open_ui_cb},
+        {.text = "Open Helios", .cb = tray_open_ui_cb},
         {.text = "-"},
   #if defined(_WIN32) || defined(__APPLE__)
         {.text = "Virtual HID Broker", .submenu = virtualhid_license_menu.data()},
@@ -836,8 +837,9 @@ namespace system_tray {
   }
 
   void run_tray_until_exit(const std::shared_ptr<safe::event_t<bool>> &shutdown_event) {
-    while (process_tray_events() == 0);
-    shutdown_event->raise(true);
+    // Server failures can request shutdown without a signal or a tray click.
+    // Wake the blocking Qt loop in that case, including shutdown during tray initialization.
+    detail::run_shutdown_loop(shutdown_event, process_tray_events, end_tray);
   }
 
   int end_tray() {

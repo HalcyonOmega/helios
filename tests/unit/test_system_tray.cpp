@@ -123,7 +123,7 @@ namespace {
     const auto &tray_data = system_tray::tray_data_for_testing();
     ASSERT_NE(tray_data.menu, nullptr);
 
-    EXPECT_STREQ(tray_data.menu[0].text, "Open Sunshine");
+    EXPECT_STREQ(tray_data.menu[0].text, "Open Helios");
     EXPECT_NE(tray_data.menu[0].cb, nullptr);
     EXPECT_STREQ(tray_data.menu[1].text, "-");
     EXPECT_EQ(tray_data.menu[1].cb, nullptr);
@@ -347,7 +347,7 @@ TEST_F(SystemTrayTest, LeftClickUsesNativeMacOSMenu) {
 
   tray_data.cb(nullptr);
 
-  EXPECT_STREQ(tray_data.menu[0].text, "Open Sunshine");
+  EXPECT_STREQ(tray_data.menu[0].text, "Open Helios");
   EXPECT_FALSE(system_tray::tray_initialized_for_testing());
 }
   #endif
@@ -689,6 +689,33 @@ TEST_F(SystemTrayTest, LifecycleMenuAndStateTransitions) {
   system_tray::run_tray_until_exit(shutdown_event);
   EXPECT_TRUE(shutdown_event->peek());
   exit_thread.join();
+  EXPECT_FALSE(system_tray::tray_initialized_for_testing());
+}
+
+TEST_F(SystemTrayTest, ShutdownBeforeEventLoopClosesTray) {
+  if (const int result = initialize_tray(); result != 0) {
+    GTEST_SKIP() << "System tray is unavailable in this environment (code " << result << ")";
+  }
+  auto shutdown_event = std::make_shared<safe::event_t<bool>>();
+  shutdown_event->raise(true);
+
+  system_tray::run_tray_until_exit(shutdown_event);
+
+  EXPECT_FALSE(system_tray::tray_initialized_for_testing());
+}
+
+TEST_F(SystemTrayTest, ServerShutdownWakesBlockingTrayLoop) {
+  if (const int result = initialize_tray(); result != 0) {
+    GTEST_SKIP() << "System tray is unavailable in this environment (code " << result << ")";
+  }
+  auto shutdown_event = std::make_shared<safe::event_t<bool>>();
+  std::jthread server_thread([shutdown_event]() {
+    std::this_thread::sleep_for(100ms);
+    shutdown_event->raise(true);
+  });
+
+  system_tray::run_tray_until_exit(shutdown_event);
+
   EXPECT_FALSE(system_tray::tray_initialized_for_testing());
 }
   #endif

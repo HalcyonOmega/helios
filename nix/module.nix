@@ -88,5 +88,7 @@ in
 
       settings = defaultSettings // cfg.settings;
     };
+    # Explicit shutdown (including a killed host) must not silently launch a replacement.
+    systemd.user.services.sunshine.serviceConfig.Restart = lib.mkForce "no";
   };
 }

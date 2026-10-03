@@ -93,9 +93,9 @@ namespace system_tray {
   int process_tray_events();
 
   /**
-   * @brief Process tray events until exit and notify the application's workers.
+   * @brief Process tray events until either the tray or the application requests shutdown.
    *
-   * @param shutdown_event Event used to stop Sunshine's server threads.
+   * @param shutdown_event Event shared with Sunshine's server threads; wakes the blocking tray loop.
    */
   void run_tray_until_exit(const std::shared_ptr<safe::event_t<bool>> &shutdown_event);
 

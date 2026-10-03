@@ -851,30 +851,30 @@ namespace display_device {
     return mapped_name;
   }
 
-  void configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
+  bool configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
 #ifdef SUNSHINE_BUILD_KWIN
-    // libdisplaydevice has no Linux backend. On KDE Plasma, give the session its own compositor
-    // output instead of touching the host's monitors; fall through when that is unavailable.
-    if (video_config.virtual_display.enabled && platf::kwin_virtual_display_start(session.width, session.height, session.client_name)) {
-      return;
+    // Never fall back to the physical desktop when isolation was explicitly requested.
+    if (video_config.virtual_display.enabled) {
+      return platf::kwin_virtual_display_start(session.width, session.height, session.client_name);
     }
 #endif
 
     const auto result {parse_configuration(video_config, session)};
     if (const auto *parsed_config {std::get_if<SingleDisplayConfiguration>(&result)}; parsed_config) {
       configure_display(*parsed_config);
-      return;
+      return true;
     }
 
     if (const auto *disabled {std::get_if<configuration_disabled_tag_t>(&result)}; disabled) {
       BOOST_LOG(info) << "Display device configuration is disabled. Reverting any active display device configuration.";
       revert_configuration();
-      return;
+      return true;
     }
 
     BOOST_LOG(error) << "Failed to parse display device configuration. Display settings will not be changed.";
     // Error details should already be logged for failed_to_parse_tag_t case, and we also don't
     // want to revert active configuration in case we have any
+    return true;  // Preserve the existing non-virtual configuration retry behavior.
   }
 
   void configure_display(const SingleDisplayConfiguration &config) {

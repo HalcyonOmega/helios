@@ -25,6 +25,7 @@
 // local includes
 #include "config.h"
 #include "display_device.h"
+#include "entry_handler.h"
 #include "file_handler.h"
 #include "globals.h"
 #include "httpcommon.h"
@@ -1392,7 +1393,12 @@ namespace nvhttp {
       // We want to prepare display only if there are no active sessions at
       // the moment. This should be done before probing encoders as it could
       // change the active displays.
-      display_device::configure_display(config::video, *launch_session);
+      if (!display_device::configure_display(config::video, *launch_session)) {
+        tree.put("root.<xmlattr>.status_code", 503);
+        tree.put("root.<xmlattr>.status_message", "Cannot create an isolated Helios display. The host desktop will not be used.");
+        tree.put("root.gamesession", 0);
+        return;
+      }
 
       // Probe encoders again before streaming to ensure our chosen
       // encoder matches the active GPU (which could have changed
@@ -1504,7 +1510,12 @@ namespace nvhttp {
       // We want to prepare display only if there are no active sessions at
       // the moment. This should be done before probing encoders as it could
       // change the active displays.
-      display_device::configure_display(config::video, *launch_session);
+      if (!display_device::configure_display(config::video, *launch_session)) {
+        tree.put("root.<xmlattr>.status_code", 503);
+        tree.put("root.<xmlattr>.status_message", "Cannot create an isolated Helios display. The host desktop will not be used.");
+        tree.put("root.resume", 0);
+        return;
+      }
 
       // Probe encoders again before streaming to ensure our chosen
       // encoder matches the active GPU (which could have changed
@@ -1736,7 +1747,8 @@ namespace nvhttp {
           return;
         }
 
-        BOOST_LOG(fatal) << "Couldn't start http server on ports ["sv << port_https << ", "sv << port_https << "]: "sv << err.what();
+        BOOST_LOG(fatal) << "Couldn't start http server on ports ["sv << port_http << ", "sv << port_https << "]: "sv << err.what();
+        lifetime::desired_exit_code.store(1);
         shutdown_event->raise(true);
         return;
       }

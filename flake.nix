@@ -19,11 +19,15 @@
         pkgs.callPackage ./nix/package.nix {
           src = self;
           inherit version rev;
+          desktop = mkDesktop pkgs;
         };
+
+      mkDesktop = pkgs: pkgs.callPackage ./nix/desktop.nix { src = self; inherit version; };
     in
     {
       packages = forAllSystems (pkgs: {
         default = mkPackage pkgs;
+        desktop = mkDesktop pkgs;
       });
 
       overlays.default = final: _prev: {
@@ -35,7 +39,7 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.default ];
-          packages = [ pkgs.ninja ];
+          packages = [ pkgs.ninja pkgs.uv ];
         };
       });
 

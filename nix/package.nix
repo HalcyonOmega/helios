@@ -47,6 +47,7 @@
   src,
   version,
   rev,
+  desktop,
 }:
 let
   submodules = lib.importJSON ./submodules.json;
@@ -205,6 +206,10 @@ stdenv.mkDerivation (finalAttrs: {
     exec -a sunshine "\$target" "\$@"
     EOF
     chmod +x $out/bin/helios
+    ln -s ${desktop}/bin/helios-desktop $out/bin/helios-desktop
+    cp ${desktop}/share/applications/io.github.HalcyonOmega.Helios.desktop $out/share/applications/
+    mkdir -p $out/share/icons/hicolor/scalable/apps
+    cp ${desktop}/share/icons/hicolor/scalable/apps/helios.svg $out/share/icons/hicolor/scalable/apps/
   '';
 
   postFixup = ''
@@ -215,7 +220,10 @@ stdenv.mkDerivation (finalAttrs: {
 
     # The NixOS module runs the user unit as `sunshine.service`.
     substituteInPlace $out/share/applications/dev.lizardbyte.app.Sunshine.desktop \
-      --replace-fail "Exec=/usr/bin/env systemctl start --u app-dev.lizardbyte.app.Sunshine" "Exec=systemctl --user start sunshine"
+      --replace-fail "Exec=/usr/bin/env systemctl start --u app-dev.lizardbyte.app.Sunshine" "Exec=${desktop}/bin/helios-desktop"
+    # Keep compatibility entries and KWin permissions but show only one branded app in menus.
+    substituteInPlace $out/share/applications/dev.lizardbyte.app.Sunshine.desktop \
+      --replace-fail "Type=Application" $'Type=Application\nNoDisplay=true'
 
     # wrapQtAppsHook only wraps ELF files; give the `helios` launcher the same environment so
     # the per-user copy it starts runs exactly like bin/sunshine.
@@ -224,6 +232,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   passthru = {
     inherit ffmpeg;
+    inherit desktop;
   };
 
   meta = {
