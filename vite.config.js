@@ -36,10 +36,11 @@ else {
 const emitTrayIconsPlugin = {
     name: 'emit-tray-icons',
     buildStart() {
+        // The tray's default icon is the red Helios logo, not upstream Sunshine's.
         this.emitFile({
             type: 'asset',
             fileName: 'images/logo-sunshine.svg',
-            source: fs.readFileSync(resolve(projectRoot, 'sunshine.svg')),
+            source: fs.readFileSync(resolve(projectRoot, 'src_assets/common/helios.svg')),
         });
 
         const virtualHidIcon = resolve(projectRoot, 'third-party/libvirtualhid/libvirtualhid.svg');

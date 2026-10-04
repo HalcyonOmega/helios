@@ -116,7 +116,7 @@ if(SUNSHINE_ENABLE_TRAY AND (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux
     file(MAKE_DIRECTORY "${SUNSHINE_TRAY_TEST_ICON_DESTINATION_DIR}")
 
     configure_file(
-            "${CMAKE_SOURCE_DIR}/sunshine.svg"
+            "${CMAKE_SOURCE_DIR}/src_assets/common/helios.svg"
             "${SUNSHINE_TRAY_TEST_ICON_DESTINATION_DIR}/logo-sunshine.svg"
             COPYONLY)
 
