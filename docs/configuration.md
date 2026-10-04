@@ -1543,10 +1543,11 @@ consent prompt for directory ACLs, so the Web UI shows setup steps for correctin
     <tr>
         <td>Description</td>
         <td colspan="2">
-            Give every streaming session its own KDE Plasma output, created at the client's requested
-            resolution when the app launches and removed when it quits (or when the last client leaves while
-            no app runs). Capture and absolute mouse/touch input target that output, so the host's monitors
-            stay free for local use. When enabled and `capture` is left on automatic, KWin capture is chosen.
+            Give every streaming session its own KDE Plasma output, created at `virtual_display_resolution`
+            when the app launches and removed when it quits (or when the last client leaves while no app runs).
+            The output is placed to the right of the host's monitors and is never made the primary monitor.
+            Capture and absolute mouse/touch input target that output, so the host's monitors stay free for
+            local use. When enabled and `capture` is left on automatic, KWin capture is chosen.
             If KWin capture is unavailable, an existing monitor is streamed instead.
             @note{Applies to Linux with KDE Plasma (KWin ScreenCast protocol v2+) only. KWin virtual outputs run at 60 Hz.}
         </td>
@@ -1565,13 +1566,40 @@ consent prompt for directory ACLs, so the Web UI shows setup steps for correctin
     </tr>
 </table>
 
+### virtual_display_resolution
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Resolution of the virtual display, as `WIDTHxHEIGHT` (640x360 to 7680x4320), or `client` to use the
+            resolution the Moonlight client requests. A fixed resolution lets more than one client, such as
+            Moonlight running on the host itself, view the same virtual display. The stream is scaled to the
+            client's resolution.
+            @note{Applies to Linux with KDE Plasma only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            2560x1440
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            virtual_display_resolution = 3840x2160
+            @endcode</td>
+    </tr>
+</table>
+
 ### virtual_display_scale
 
 <table>
     <tr>
         <td>Description</td>
         <td colspan="2">
-            Compositor scale factor for the virtual display. The captured stream always matches the client's
+            Compositor scale factor for the virtual display. The captured stream keeps the virtual display's
             resolution; larger values make the desktop and menus bigger on the client.
             @note{Applies to Linux with KDE Plasma only.}
         </td>

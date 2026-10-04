@@ -24,6 +24,7 @@ namespace platf {
       int transform = 0;  ///< Orientation reported by KWin.
       double scale = 1.0;  ///< Fractional compositor scale.
       bool enabled = false;  ///< Whether this output belongs to the desktop.
+      std::uint32_t priority = 0;  ///< Output order; the lowest value is the primary monitor. 0 when unknown.
       kde_output_device_mode_v2 *current = nullptr;  ///< Current physical mode.
     };
 
@@ -32,6 +33,7 @@ namespace platf {
       wl_display *display = nullptr;  ///< Separate connection used for the single transaction.
       wl_registry *registry = nullptr;  ///< Registry proxy.
       kde_output_management_v2 *management = nullptr;  ///< Configuration factory.
+      std::uint32_t management_version = 0;  ///< Bound configuration protocol version.
       kde_output_device_registry_v2 *device_registry = nullptr;  ///< Modern output announcements.
       std::map<kde_output_device_v2 *, device_t> devices;  ///< Read-only output properties.
       std::map<kde_output_device_mode_v2 *, std::pair<int, int>> modes;  ///< Advertised pixel sizes.
@@ -154,7 +156,8 @@ namespace platf {
       },
       .sharpness = [](void *, kde_output_device_v2 *, uint32_t) {
       },
-      .priority = [](void *, kde_output_device_v2 *, uint32_t) {
+      .priority = [](void *data, kde_output_device_v2 *device, uint32_t priority) {
+        static_cast<layout_t *>(data)->devices.at(device).priority = priority;
       },
       .auto_brightness = [](void *, kde_output_device_v2 *, uint32_t) {
       },
@@ -173,18 +176,33 @@ namespace platf {
       },
     };
 
-    /** @brief Support legacy globals and modern registries, binding only supported callback versions. */
+    /**
+     * @brief Newest output-device version whose events the listeners above all handle.
+     *
+     * Version 18 adds the priority event; versions after 21 add events without a handler here.
+     */
+    constexpr std::uint32_t max_device_version = 21;
+
+    /** @brief Version to bind: the older of the compositor's and this client's. */
+    std::uint32_t bind_version(std::uint32_t advertised, std::uint32_t supported) {
+      return std::min(advertised, supported);
+    }
+
+    /** @brief Support legacy globals and modern registries. */
     const wl_registry_listener registry_listener {
       .global = [](void *data, wl_registry *registry, uint32_t id, const char *interface, uint32_t version) {
         auto &layout = *static_cast<layout_t *>(data);
         if (std::strcmp(interface, kde_output_management_v2_interface.name) == 0) {
-          layout.management = static_cast<kde_output_management_v2 *>(wl_registry_bind(registry, id, &kde_output_management_v2_interface, 1));
+          // Version 3 adds set_priority. Newer versions add a failure_reason event this client
+          // does not handle, so never bind above 3.
+          layout.management_version = bind_version(version, 3);
+          layout.management = static_cast<kde_output_management_v2 *>(wl_registry_bind(registry, id, &kde_output_management_v2_interface, layout.management_version));
         } else if (std::strcmp(interface, kde_output_device_v2_interface.name) == 0 && version >= 2) {
-          auto *device = static_cast<kde_output_device_v2 *>(wl_registry_bind(registry, id, &kde_output_device_v2_interface, 2));
+          auto *device = static_cast<kde_output_device_v2 *>(wl_registry_bind(registry, id, &kde_output_device_v2_interface, bind_version(version, max_device_version)));
           layout.devices.emplace(device, device_t {});
           kde_output_device_v2_add_listener(device, &device_listener, data);
         } else if (std::strcmp(interface, kde_output_device_registry_v2_interface.name) == 0 && version >= 21) {
-          layout.device_registry = static_cast<kde_output_device_registry_v2 *>(wl_registry_bind(registry, id, &kde_output_device_registry_v2_interface, 21));
+          layout.device_registry = static_cast<kde_output_device_registry_v2 *>(wl_registry_bind(registry, id, &kde_output_device_registry_v2_interface, max_device_version));
           kde_output_device_registry_v2_add_listener(layout.device_registry, &device_registry_listener, data);
         }
       },
@@ -209,7 +227,7 @@ namespace platf {
     };
   }  // namespace
 
-  bool position_virtual_output(const std::string &name) {
+  bool isolate_virtual_output(const std::string &name) {
     // This helper must never be used to configure a physical output, even accidentally.
     if (!name.starts_with("Virtual-Helios-")) {
       return false;
@@ -232,6 +250,7 @@ namespace platf {
     }
     kde_output_device_v2 *target = nullptr;
     std::vector<output_rect_t> host;
+    std::vector<std::uint32_t> host_priorities;
     for (const auto &[device, properties] : layout.devices) {
       if (properties.name == name) {
         target = device;
@@ -246,6 +265,7 @@ namespace platf {
         std::swap(width, height);
       }
       host.push_back({properties.x, properties.y, static_cast<int>(std::ceil(width / properties.scale)), static_cast<int>(std::ceil(height / properties.scale))});
+      host_priorities.push_back(properties.priority);
     }
     const auto position = virtual_output_position(host);
     if (!target || !position) {
@@ -257,14 +277,20 @@ namespace platf {
     });
     result_t result;
     kde_output_configuration_v2_add_listener(configuration, &configuration_listener, &result);
-    // The ONLY write in the transaction is this virtual output's position. Do not send
-    // modes, scale, enable, primary or priority requests for any output.
+    // The ONLY writes in the transaction target this virtual output: its position, and its
+    // priority so a host monitor stays primary. KWin remembers each output set's layout and may
+    // restore one where the virtual output overlapped the desktop or was primary.
+    // Do not send modes, scale, enable or priority requests for any other output.
     kde_output_configuration_v2_position(configuration, target, position->first, position->second);
+    const auto priority = virtual_output_priority(host_priorities);
+    if (layout.management_version >= KDE_OUTPUT_CONFIGURATION_V2_SET_PRIORITY_SINCE_VERSION) {
+      kde_output_configuration_v2_set_priority(configuration, target, priority);
+    }
     kde_output_configuration_v2_apply(configuration);
     if (wl_display_roundtrip(layout.display) < 0 || !result.done || !result.applied) {
       return false;
     }
-    BOOST_LOG(info) << "[kwingrab] Isolated virtual output '" << name << "' at " << position->first << "x" << position->second;
+    BOOST_LOG(info) << "[kwingrab] Isolated virtual output '" << name << "' at " << position->first << "x" << position->second << " with priority " << priority;
     return true;
   }
 }  // namespace platf

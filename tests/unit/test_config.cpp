@@ -22,6 +22,56 @@ TEST(ConfigDefaultsTest, UsesAutomaticGamepadSelection) {
   EXPECT_EQ(config::input.gamepad, "auto");
 }
 
+TEST(ConfigDefaultsTest, VirtualDisplayDefaultsTo1440p) {
+  const config::video_t::virtual_display_t defaults;
+  EXPECT_EQ(defaults.width, 2560);
+  EXPECT_EQ(defaults.height, 1440);
+  // A fixed size ignores the client, so a second viewer session reuses the same output.
+  EXPECT_EQ(defaults.resolution_for(3840, 2160), std::make_pair(2560, 1440));
+}
+
+TEST(VirtualDisplayResolutionTest, FollowsTheClientWhenSizeIsZero) {
+  config::video_t::virtual_display_t settings;
+  settings.width = 0;
+  settings.height = 0;
+  EXPECT_EQ(settings.resolution_for(3840, 2160), std::make_pair(3840, 2160));
+}
+
+/**
+ * @brief Restores the global virtual display settings after each parsing case.
+ */
+class VirtualDisplayResolutionConfigTest: public testing::Test {
+protected:
+  void TearDown() override {
+    config::video.virtual_display = saved;
+  }
+
+  config::video_t::virtual_display_t saved = config::video.virtual_display;  ///< Settings before the test.
+};
+
+TEST_F(VirtualDisplayResolutionConfigTest, ParsesExplicitResolution) {
+  config::apply_config_for_test("virtual_display_resolution = 3840x2160\n");
+  EXPECT_EQ(config::video.virtual_display.width, 3840);
+  EXPECT_EQ(config::video.virtual_display.height, 2160);
+}
+
+TEST_F(VirtualDisplayResolutionConfigTest, ParsesClientKeyword) {
+  config::apply_config_for_test("virtual_display_resolution = client\n");
+  EXPECT_EQ(config::video.virtual_display.width, 0);
+  EXPECT_EQ(config::video.virtual_display.height, 0);
+}
+
+TEST_F(VirtualDisplayResolutionConfigTest, KeepsCurrentValueForInvalidInput) {
+  constexpr std::array invalid {"2560"sv, "2560x"sv, "x1440"sv, "2560x1440p"sv, "abcxdef"sv, "100x100"sv, "10000x1440"sv, "2560x9000"sv};
+  for (const auto value : invalid) {
+    config::video.virtual_display.width = 2560;
+    config::video.virtual_display.height = 1440;
+    config::apply_config_for_test(std::string {"virtual_display_resolution = "} + std::string {value} + "\n");
+    EXPECT_EQ(config::video.virtual_display.width, 2560) << value;
+    EXPECT_EQ(config::video.virtual_display.height, 1440) << value;
+  }
+}
+
 using NvencPresetNameParam = std::pair<int, std::string_view>;
 
 /**

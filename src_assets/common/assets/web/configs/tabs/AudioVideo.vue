@@ -96,6 +96,14 @@ const config = ref(props.config)
         ></Checkbox>
 
         <template v-if="config.virtual_display !== 'disabled'">
+          <!-- Virtual display resolution -->
+          <div class="mb-3">
+            <label for="virtual_display_resolution" class="form-label">{{ $t('config.virtual_display_resolution') }}</label>
+            <input type="text" class="form-control" id="virtual_display_resolution" placeholder="2560x1440"
+                   v-model="config.virtual_display_resolution" />
+            <div class="form-text">{{ $t('config.virtual_display_resolution_desc') }}</div>
+          </div>
+
           <!-- Virtual display scale -->
           <div class="mb-3">
             <label for="virtual_display_scale" class="form-label">{{ $t('config.virtual_display_scale') }}</label>

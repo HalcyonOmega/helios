@@ -4,6 +4,7 @@
  */
 // standard includes
 #include <algorithm>
+#include <charconv>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -1387,6 +1388,46 @@ namespace config {
   }
 
   /**
+   * @brief Consume the virtual display resolution: `WIDTHxHEIGHT`, or `client` to follow the client.
+   *
+   * Invalid values are logged and leave the current resolution unchanged.
+   *
+   * @param vars Parsed configuration entries; consumed keys are erased.
+   * @param name Configuration key to consume.
+   * @param input Virtual display settings whose width and height are updated.
+   */
+  void virtual_display_resolution_f(std::unordered_map<std::string, std::string> &vars, const std::string &name, video_t::virtual_display_t &input) {
+    std::string value;
+    string_f(vars, name, value);
+    if (value.empty()) {
+      return;
+    }
+    if (value == "client") {
+      input.width = 0;
+      input.height = 0;
+      return;
+    }
+
+    const auto separator = value.find('x');
+    int width = 0;
+    int height = 0;
+    if (separator != std::string::npos) {
+      const auto *begin = value.data();
+      const auto *end = begin + value.size();
+      const auto width_result = std::from_chars(begin, begin + separator, width);
+      const auto height_result = std::from_chars(begin + separator + 1, end, height);
+      const bool parsed = width_result.ec == std::errc {} && width_result.ptr == begin + separator && height_result.ec == std::errc {} && height_result.ptr == end;
+      // 8K is the largest output KWin and the encoders handle in practice.
+      if (parsed && width >= 640 && width <= 7680 && height >= 360 && height <= 4320) {
+        input.width = width;
+        input.height = height;
+        return;
+      }
+    }
+    BOOST_LOG(warning) << "config: '" << name << "' must be WIDTHxHEIGHT (640x360 to 7680x4320) or 'client'; ignoring '" << value << '\'';
+  }
+
+  /**
    * @brief Consume a comma-separated or bracketed string list setting.
    *
    * @param vars Parsed configuration entries; consumed keys are erased.
@@ -1737,6 +1778,7 @@ namespace config {
     bool_f(vars, "virtual_display", video.virtual_display.enabled);
     double_between_f(vars, "virtual_display_scale", video.virtual_display.scale, {0.5, 4.0});
     bool_f(vars, "virtual_display_move_windows", video.virtual_display.move_game_windows);
+    virtual_display_resolution_f(vars, "virtual_display_resolution", video.virtual_display);
 
     path_f(vars, "pkey", nvhttp.pkey);
     path_f(vars, "cert", nvhttp.cert);

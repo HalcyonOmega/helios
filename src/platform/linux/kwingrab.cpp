@@ -1090,8 +1090,8 @@ for (const window of workspace.windowList()) {
         return -1;
       }
       name = screencast->out_params->name;
-      if (!platf::position_virtual_output(name)) {
-        BOOST_LOG(error) << "[kwingrab] Cannot isolate the virtual output; removing it instead of overlapping the host desktop";
+      if (!platf::isolate_virtual_output(name)) {
+        BOOST_LOG(error) << "[kwingrab] Cannot isolate the virtual output; removing it instead of overlapping or replacing the host desktop";
         screencast.reset();
         return -1;
       }
@@ -1211,10 +1211,10 @@ namespace platf {
   }
 
   /**
-   * @brief Create (or reuse) the per-session virtual output at the client's resolution.
+   * @brief Create (or reuse) the per-session virtual output at the configured resolution.
    *
-   * @param width Client width in pixels.
-   * @param height Client height in pixels.
+   * @param width Output width in pixels (`virtual_display_resolution`, or the client's width).
+   * @param height Output height in pixels (`virtual_display_resolution`, or the client's height).
    * @param client_name Paired client name, shown in the display description.
    * @return True when a virtual output is active afterwards.
    */

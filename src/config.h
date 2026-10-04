@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // local includes
@@ -225,15 +226,31 @@ namespace config {
     /**
      * @brief Per-session virtual display (Linux / KDE Plasma).
      *
-     * When enabled, every streaming session gets its own compositor-created output sized to the
-     * client's requested resolution. Capture and absolute input target that output, so the host's
-     * physical monitors stay free for local use. The output is removed when the app quits (or the
-     * last client disconnects while no app runs).
+     * When enabled, every streaming session gets its own compositor-created output, placed beside
+     * the host's monitors and never made primary. Capture and absolute input target that output,
+     * so the host's physical monitors stay free for local use. The output is removed when the app
+     * quits (or the last client disconnects while no app runs).
      */
     struct virtual_display_t {
       bool enabled = true;  ///< Create a virtual output for each streaming session (falls back to normal capture when unsupported).
-      double scale = 1.0;  ///< Compositor scale factor for the virtual output; the captured size stays at the client resolution.
+      double scale = 1.0;  ///< Compositor scale factor for the virtual output; the captured size stays at the output resolution.
       bool move_game_windows = true;  ///< Move Steam game and Big Picture windows onto the virtual output while it exists.
+      int width = 2560;  ///< Virtual output width in pixels; 0 follows the client's requested resolution.
+      int height = 1440;  ///< Virtual output height in pixels; 0 follows the client's requested resolution.
+
+      /**
+       * @brief Resolve the virtual output size for a session.
+       *
+       * @param client_width Width requested by the Moonlight client.
+       * @param client_height Height requested by the Moonlight client.
+       * @return The configured size, or the client's size when the setting follows the client.
+       */
+      std::pair<int, int> resolution_for(int client_width, int client_height) const {
+        if (width > 0 && height > 0) {
+          return {width, height};
+        }
+        return {client_width, client_height};
+      }
     } virtual_display;  ///< Virtual display settings.
   };
 

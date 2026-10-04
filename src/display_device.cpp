@@ -855,7 +855,8 @@ namespace display_device {
 #ifdef SUNSHINE_BUILD_KWIN
     // Never fall back to the physical desktop when isolation was explicitly requested.
     if (video_config.virtual_display.enabled) {
-      return platf::kwin_virtual_display_start(session.width, session.height, session.client_name);
+      const auto [width, height] = video_config.virtual_display.resolution_for(session.width, session.height);
+      return platf::kwin_virtual_display_start(width, height, session.client_name);
     }
 #endif
 

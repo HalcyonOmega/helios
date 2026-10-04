@@ -46,6 +46,7 @@
       "adapter_name": "",
       "output_name": "",
       "virtual_display": "enabled",
+      "virtual_display_resolution": "2560x1440",
       "virtual_display_scale": 1.0,
       "virtual_display_move_windows": "enabled",
       "isolate_app_audio": "enabled",
